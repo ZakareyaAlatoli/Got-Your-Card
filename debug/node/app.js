@@ -1,41 +1,61 @@
-var createError = require('http-errors');
-var express = require('express');
-var path = require('path');
-var cookieParser = require('cookie-parser');
-var logger = require('morgan');
+//Express is a framework for making web sites
+const express = require('express');
+//'app' is the Express application which we send data to
+const app = express();
+//http library contains various tools for setting up a server to receive http requests
+const http = require('http');
+//this is where the server is created
+const server = http.createServer(app);
+//we import the 'Server' class from 'socket.io' to upgrade the http connection to websockets
+const { Server } = require("socket.io");
+//'io' is a websocket server (connect to it with "ws://..." instead of "http://...")
+const io = new Server(server);
+//this is a middleware to read/write cookies so if players disconnect by accident they
+//don't lose all progress
+const cookieParser = require('cookie-parser');
 
-var indexRouter = require('./routes/index');
-var usersRouter = require('./routes/users');
+const {v4 : uuidv4} = require('uuid');
 
-var app = express();
-
-// view engine setup
-app.set('views', path.join(__dirname, 'views'));
-app.set('view engine', 'jade');
-
-app.use(logger('dev'));
-app.use(express.json());
-app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
-app.use(express.static(path.join(__dirname, 'public')));
 
-app.use('/', indexRouter);
-app.use('/users', usersRouter);
-
-// catch 404 and forward to error handler
-app.use(function(req, res, next) {
-  next(createError(404));
+var gycID;
+//when a GET http request is sent to root of the website, return an html page
+app.get('/', (req, res) => {
+    gycID = req.cookies['gycID'];
+    if(!gycID){
+        gycID = uuidv4();
+        res.cookie('gycID', gycID);
+        console.log(`New ID generated: ${gycID}`);
+    }
+    else{
+        console.log(`Current ID: ${gycID}`);
+    }
+    res.sendFile(__dirname + '/index.html');
 });
 
-// error handler
-app.use(function(err, req, res, next) {
-  // set locals, only providing error in development
-  res.locals.message = err.message;
-  res.locals.error = req.app.get('env') === 'development' ? err : {};
+var idMap = {};
 
-  // render the error page
-  res.status(err.status || 500);
-  res.render('error');
+//this sets up a callback when a client connects to the server
+io.on('connection', (socket) => {
+    socket.emit('get-id');
+    socket.on('received-id', (id) => {
+        console.log(id);
+    })
+    console.log('a user connected');
+    //Below are a list of callbacks for different events
+    //Some have parameters and some don't
+    socket.on('disconnect', () => {
+        console.log('user disconnected');
+    });
+    socket.on('chat message', (msg) => {
+        //This emits to all connected sockets, including the sender
+        io.emit('chat message', msg);
+        console.log('message: ' + msg);
+    });
 });
 
-module.exports = app;
+const port = process.env.PORT || 3000;
+//this makes the server start listening for incoming requests
+server.listen(port, () => {
+  console.log(`Listening on port ${port}`);
+});

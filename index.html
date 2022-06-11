@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Got Your Card</title>
+</head>
+<body>
+    <div id="main-menu">
+        <h1>MAIN MENU</h1>
+        <button id="create-game-btn">Create Game</button>
+        <button id="join-game-btn">Join Game</button>
+        <form id="name-form" action="">
+            <label>Name</label>
+            <input id="input-name">
+            <button>Submit</button>
+        </form>
+    </div>
+
+    <div id="lobby" style="display:none;">
+        <h1>LOBBY</h1>
+        <ol>
+            <li>TEST</li>
+        </ol>
+    </div>
+    <script>
+        var myID = 0;
+        var gameID = 0;
+
+        function createGame(){
+            return 0;
+        }
+
+
+        names = {
+            0: 'PLACEHOLDER',
+            1: 'Melman',
+            2: 'Will Smith'
+        };
+        var nameform = document.getElementById('name-form');
+        var input = document.getElementById('input-name');
+        //When the user submits text in the form, that message is
+        //emitted to the server
+        nameform.addEventListener('submit', function(e) {
+            e.preventDefault();
+            if (input.value) {
+                names[myID] = input.value;
+                console.log(names);
+            }
+        });
+    </script>
+</body>
+</html>
