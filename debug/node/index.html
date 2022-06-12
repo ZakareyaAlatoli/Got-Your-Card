@@ -5,10 +5,21 @@
     </head>
     <body>
         <div id="main-menu">
-            <form id="form" action="">
-                <input id="input"/>
-                <button>Submit</button>
+            <button onclick="createGame()">Create Game</button>
+            <form id="join-room-form" action="">
+                <label>Active Room:
+                    <input id="input-roomid"/>
+                </label>
+                <button id="submit-roomid-btn">Join</button>
             </form>
+        </div>
+        <div id="lobby">
+            <h1>Lobby</h1><br>
+            Room Code:
+            <h2 id="room-code"></h2>
+            <ul id="player-list">
+
+            </ul>
         </div>
         <!--This loads the clientside socket.io code-->
         <script src="/socket.io/socket.io.js"></script>
@@ -16,30 +27,44 @@
             //io() normally takes the URL to connect to as an argument. If none is
             //provided, it defaults to the host that serves this page
             var socket = io();
+            const id = getCookie('gycID');
 
-            var form = document.getElementById('form');
-            var input = document.getElementById('input');
+            var form = document.getElementById('join-room-form');
+            var input = document.getElementById('input-roomid');
             //When the user submits text in the form, that message is
             //emitted to the server
             form.addEventListener('submit', function(e) {
                 e.preventDefault();
                 if (input.value) {
-                    socket.emit('chat message', input.value);
-                    input.value = '';
+                    socket.emit('join-room', id, input.value);
+                    //input.value = '';
                 }
             });
+
             //When a message is received from the server, it gets
             //displayed in the webpage
-            socket.on('chat message', function(msg) {
-                var item = document.createElement('li');
-                item.textContent = msg;
-                messages.appendChild(item);
-                window.scrollTo(0, document.body.scrollHeight);
+            var playerList = document.getElementById('player-list');
+            var room = document.getElementById('room-code');
+            socket.on('joined-room', (roomID, players) => {
+                //window.scrollTo(0, document.body.scrollHeight);
+                playerList.innerHTML = "";
+                room.innerHTML = roomID;
+                players.forEach(player => {
+                    var item = document.createElement('li');
+                    item.textContent = player;
+                    playerList.appendChild(item);
+                });
             });
 
             socket.on('get-id', () => {
-                socket.emit('received-id', getCookie('gycID'));
+                socket.emit('received-id', id);
             })
+            socket.on('error', (msg) => {
+                alert(msg);
+            })
+            function createGame(){
+                socket.emit('create-room', id);
+            }
             //Grepper ftw
             function getCookie(name) {
                 var nameEQ = name + "=";

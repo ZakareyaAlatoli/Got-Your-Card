@@ -25,33 +25,61 @@ app.get('/', (req, res) => {
     if(!gycID){
         gycID = uuidv4();
         res.cookie('gycID', gycID);
-        console.log(`New ID generated: ${gycID}`);
-    }
-    else{
-        console.log(`Current ID: ${gycID}`);
     }
     res.sendFile(__dirname + '/index.html');
 });
 
-var idMap = {};
+//Keeps track of which players are in a given room
+var rooms = {}
+//Keeps track of which room a player is in in case they disconnect for a moment
+var players = {}
+//Keeps track of which game state a given room is in
+var gameState = {}
+//Valid states:
+//LOBBY
+//QUESTIONING
+//ANSWERING
+//MATCHING
+//RESULTS
 
 //this sets up a callback when a client connects to the server
 io.on('connection', (socket) => {
+    //When the client connects, we get an id saved in their cookies. This is so
+    //they can reconnect to a game in progress, because reconnecting generates
+    //a new websocket id
     socket.emit('get-id');
+    //When it is received we check to see if they are already in a lobby, so 
+    //we can rejoin them
     socket.on('received-id', (id) => {
-        console.log(id);
+        if(players[id]){
+            socket.join(players[id]);
+            io.to(roomID).emit('joined-room', players[id], rooms[players[id]]);
+        }
     })
-    console.log('a user connected');
     //Below are a list of callbacks for different events
     //Some have parameters and some don't
     socket.on('disconnect', () => {
-        console.log('user disconnected');
+        //console.log('user disconnected');
     });
-    socket.on('chat message', (msg) => {
-        //This emits to all connected sockets, including the sender
-        io.emit('chat message', msg);
-        console.log('message: ' + msg);
-    });
+    socket.on('create-room', (id) => {
+        roomID = uuidv4().substring(0,6);
+        rooms[roomID] = [id];
+        gameState[roomID] = 'LOBBY';
+        players[id] = roomID;
+        socket.join(roomID);
+        io.to(roomID).emit('joined-room', roomID, rooms[roomID]);
+    })
+    socket.on('join-room', (id, roomID) => {
+        if(rooms[roomID]){
+            rooms[roomID].push(id);
+            players[id] = roomID;
+            socket.join(roomID);
+            io.to(roomID).emit('joined-room', roomID, rooms[roomID]);
+        }
+        else{
+            socket.emit('error', 'That room does not exist');
+        }
+    })
 });
 
 const port = process.env.PORT || 3000;
