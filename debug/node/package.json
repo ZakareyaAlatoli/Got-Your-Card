@@ -2,12 +2,12 @@
   "name": "got-your-card",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "app.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node app.js"
   },
   "keywords": [],
-  "author": "",
+  "author": "Zakareya Alatoli",
   "license": "ISC",
   "dependencies": {
     "cookie-parser": "^1.4.6",

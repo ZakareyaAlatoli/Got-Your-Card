@@ -30,11 +30,13 @@ app.get('/', (req, res) => {
 });
 
 //Keeps track of which players are in a given room
-var rooms = {}
+var playersByRoom = {}
 //Keeps track of which room a player is in in case they disconnect for a moment
-var players = {}
-//Keeps track of which game state a given room is in
-var gameState = {}
+var roomByPlayer = {}
+//Keeps track of player names
+var nameByPlayer = {}
+//Maps roomID to gameState
+var roomGameState = {}
 //Valid states:
 //LOBBY
 //QUESTIONING
@@ -51,33 +53,94 @@ io.on('connection', (socket) => {
     //When it is received we check to see if they are already in a lobby, so 
     //we can rejoin them
     socket.on('received-id', (id) => {
-        if(players[id]){
-            socket.join(players[id]);
-            io.to(roomID).emit('joined-room', players[id], rooms[players[id]]);
+        if(nameByPlayer[id]){
+            socket.emit('name-set', nameByPlayer[id]);
+        }
+        if(roomByPlayer[id]){
+            socket.join(roomByPlayer[id]);
+            names = [];
+            playersByRoom[roomID].forEach(player => {
+                names.push(nameByPlayer[player]);
+            });
+            io.to(roomID).emit('joined-room', roomByPlayer[id], playersByRoom[roomByPlayer[id]], names, maxPlayers);
         }
     })
+    socket.on('enter-name', (id,nickname) => {
+        if(roomByPlayer[id]){
+            socket.emit('error', 'Cannot set name while in a room');
+            return;
+        }
+        nameByPlayer[id] = nickname;
+        socket.emit('name-set', nickname);
+    });
     //Below are a list of callbacks for different events
     //Some have parameters and some don't
     socket.on('disconnect', () => {
-        //console.log('user disconnected');
+        //TO DO: Remove player from room when disconnected for a certain amount of time
     });
     socket.on('create-room', (id) => {
+        if(roomByPlayer[id]){
+            socket.emit('error', `You are already in room ${roomByPlayer[id]}`);
+            return;
+        }
+        //TO DO: Make roomIDs truly unique
         roomID = uuidv4().substring(0,6);
-        rooms[roomID] = [id];
-        gameState[roomID] = 'LOBBY';
-        players[id] = roomID;
+        playersByRoom[roomID] = [id];
+        roomGameState[roomID] = 'LOBBY';
+        roomByPlayer[id] = roomID;
         socket.join(roomID);
-        io.to(roomID).emit('joined-room', roomID, rooms[roomID]);
+        names = [];
+        playersByRoom[roomID].forEach(player => {
+            names.push(nameByPlayer[player]);
+        });
+        io.to(roomID).emit('joined-room', roomID, playersByRoom[roomID], names, maxPlayers);
     })
+    const maxPlayers = 10;
     socket.on('join-room', (id, roomID) => {
-        if(rooms[roomID]){
-            rooms[roomID].push(id);
-            players[id] = roomID;
+        if(roomByPlayer[id]){
+            socket.emit('error', `You are already in room ${roomByPlayer[id]}`);
+            return;
+        }
+        //Check to see if this room exists
+        if(playersByRoom[roomID]){
+            if(playersByRoom[roomID].length >= maxPlayers){
+                socket.emit('error', 'This room is full');
+                return;
+            }
+            playersByRoom[roomID].push(id);
+            roomByPlayer[id] = roomID;
             socket.join(roomID);
-            io.to(roomID).emit('joined-room', roomID, rooms[roomID]);
+            names = [];
+            playersByRoom[roomID].forEach(player => {
+                names.push(nameByPlayer[player]);
+            });
+            io.to(roomID).emit('joined-room', roomID, playersByRoom[roomID], names, maxPlayers);
         }
         else{
             socket.emit('error', 'That room does not exist');
+        }
+    })
+    socket.on('leave-room', (id) => {
+        roomID = roomByPlayer[id];
+        if(roomID){
+            socket.leave(roomID);
+            socket.emit('left-room');
+            roomByPlayer[id] = null;
+            index = playersByRoom[roomID].indexOf(id);
+            playersByRoom[roomID].splice(index,1);
+            if(playersByRoom[roomID].length <= 0){
+                delete playersByRoom[roomID];
+            }
+            else {
+                names = [];
+                playersByRoom[roomID].forEach(player => {
+                    names.push(nameByPlayer[player]);
+                });
+                io.to(roomID).emit('joined-room', roomID, playersByRoom[roomID], names, maxPlayers);
+            }
+        }
+        else{
+            socket.emit('error', 'You aren\'t in a room');
         }
     })
 });

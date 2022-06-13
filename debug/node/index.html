@@ -4,7 +4,18 @@
         <title>Got Your Card</title>
     </head>
     <body>
+        <b id="name">USERNAME</b>
         <div id="main-menu">
+            <form id="name-form" action="">
+                <label>Name:
+                    <input id="input-name"/>
+                </label>
+                <button id="submit-name-btn">Submit</button>
+            </form>
+        </div>
+        <div id="navigation-menu" style="display:none">
+            <button onclick="changeName()">Change Name</button>
+            <br>
             <button onclick="createGame()">Create Game</button>
             <form id="join-room-form" action="">
                 <label>Active Room:
@@ -13,13 +24,20 @@
                 <button id="submit-roomid-btn">Join</button>
             </form>
         </div>
-        <div id="lobby">
-            <h1>Lobby</h1><br>
+        <div id="lobby" style="display:none">
             Room Code:
-            <h2 id="room-code"></h2>
-            <ul id="player-list">
+            <b id="room-code"></b>
+            <br>
+            <button onclick="startGame()">Start Game</button>
+            <h3>Current Players: 
+                <i id="player-count">
+                    
+                </i>
+            </h3>
+            <ol id="player-list">
 
-            </ul>
+            </ol>
+            <button onclick="leaveGame()">Leave Room</button>
         </div>
         <!--This loads the clientside socket.io code-->
         <script src="/socket.io/socket.io.js"></script>
@@ -29,15 +47,25 @@
             var socket = io();
             const id = getCookie('gycID');
 
-            var form = document.getElementById('join-room-form');
-            var input = document.getElementById('input-roomid');
+            var nameForm = document.getElementById('name-form');
+            var nameInput = document.getElementById('input-name');
             //When the user submits text in the form, that message is
             //emitted to the server
-            form.addEventListener('submit', function(e) {
+            nameForm.addEventListener('submit', function(e) {
                 e.preventDefault();
-                if (input.value) {
-                    socket.emit('join-room', id, input.value);
-                    //input.value = '';
+                if (nameInput.value) {
+                    socket.emit('enter-name', id, nameInput.value);
+                }
+            });
+
+            var joinForm = document.getElementById('join-room-form');
+            var joinInput = document.getElementById('input-roomid');
+            //When the user submits text in the form, that message is
+            //emitted to the server
+            joinForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                if (joinInput.value) {
+                    socket.emit('join-room', id, joinInput.value);
                 }
             });
 
@@ -45,15 +73,34 @@
             //displayed in the webpage
             var playerList = document.getElementById('player-list');
             var room = document.getElementById('room-code');
-            socket.on('joined-room', (roomID, players) => {
-                //window.scrollTo(0, document.body.scrollHeight);
+            var username = document.getElementById('name');
+            //Menus
+            const mainMenu = document.getElementById('main-menu');
+            const navMenu = document.getElementById('navigation-menu');
+            const lobbyMenu = document.getElementById('lobby');
+            socket.on('name-set', (n) => {
+                username.textContent = n; 
+                mainMenu.style.display = "none";
+                navMenu.style.display = "block";
+            });
+            const playerCount = document.getElementById('player-count');
+            socket.on('joined-room', (roomID, players, names, maxPlayers) => {
+                lobbyMenu.style.display = "block";
+                navMenu.style.display = "none";
                 playerList.innerHTML = "";
-                room.innerHTML = roomID;
-                players.forEach(player => {
+                playerCount.textContent = `(${players.length}\\${maxPlayers})`;
+                room.textContent = roomID;
+                names.forEach(n => {
                     var item = document.createElement('li');
-                    item.textContent = player;
+                    item.textContent = n;
                     playerList.appendChild(item);
                 });
+            });
+            socket.on('left-room', () => {
+                //room.innerHTML = "";
+                //playerList.innerHTML = "";
+                navMenu.style.display = "block";
+                lobbyMenu.style.display = "none";
             });
 
             socket.on('get-id', () => {
@@ -62,8 +109,19 @@
             socket.on('error', (msg) => {
                 alert(msg);
             })
+            function changeName(){
+                navMenu.style.display = "none";
+                mainMenu.style.display = "block";
+            }
             function createGame(){
                 socket.emit('create-room', id);
+            }
+            function leaveGame(){
+                socket.emit('leave-room', id);
+            }
+            //TO DO: Start the game
+            function startGame(){
+                console.log('START GAME TO BE IMPLEMENTED');
             }
             //Grepper ftw
             function getCookie(name) {
