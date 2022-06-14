@@ -84,7 +84,7 @@
                 navMenu.style.display = "block";
             });
             const playerCount = document.getElementById('player-count');
-            socket.on('joined-room', (roomID, players, names, maxPlayers) => {
+            socket.on('room-state', (roomID, players, names, maxPlayers) => {
                 lobbyMenu.style.display = "block";
                 navMenu.style.display = "none";
                 playerList.innerHTML = "";

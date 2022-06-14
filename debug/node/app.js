@@ -29,6 +29,11 @@ app.get('/', (req, res) => {
     res.sendFile(__dirname + '/index.html');
 });
 
+
+var playerBySocket = {}
+//When a player disconnects, they will be removed from any lobby
+//if they don't reconnect for a certain time
+var disconnectedPlayers = {}
 //Keeps track of which players are in a given room
 var playersByRoom = {}
 //Keeps track of which room a player is in in case they disconnect for a moment
@@ -44,6 +49,46 @@ var roomGameState = {}
 //MATCHING
 //RESULTS
 
+//GLOBAL CONSTANTS
+const maxPlayers = 10;
+
+//HELPER FUNCTIONS
+function removePlayer(id){
+    delete disconnectedPlayers[id];
+    delete nameByPlayer[id];
+    const roomID = roomByPlayer[id];
+    delete roomByPlayer[id];
+    if(roomID){
+        leaveRoom(id, roomID);
+    }
+}
+//Lets players know when someone joined or left
+function roomChange(roomID){
+    names = [];
+    playersByRoom[roomID].forEach(player => {
+        names.push(nameByPlayer[player]);
+    });
+    io.to(roomID).emit('room-state', roomID, playersByRoom[roomID], names, maxPlayers);
+}
+//Removes a player from a room. The server doesn't
+//use the websocket connection to determine if a 
+//player is in a room.
+function leaveRoom(id, roomID){
+    delete roomByPlayer[id];
+    index = playersByRoom[roomID].indexOf(id);
+    playersByRoom[roomID].splice(index,1);
+    if(playersByRoom[roomID].length <= 0){
+        delete playersByRoom[roomID];
+        return;
+    }
+    roomChange(roomID);
+}
+function enterRoom(id, roomID){
+    roomByPlayer[id] = roomID;
+    playersByRoom[roomID].push(id);
+    roomChange(roomID);
+}
+
 //this sets up a callback when a client connects to the server
 io.on('connection', (socket) => {
     //When the client connects, we get an id saved in their cookies. This is so
@@ -53,16 +98,17 @@ io.on('connection', (socket) => {
     //When it is received we check to see if they are already in a lobby, so 
     //we can rejoin them
     socket.on('received-id', (id) => {
+        playerBySocket[socket.id] = id;
+        if(disconnectedPlayers[id]){
+            clearTimeout(disconnectedPlayers[id]);
+            delete disconnectedPlayers[id];
+        }
         if(nameByPlayer[id]){
             socket.emit('name-set', nameByPlayer[id]);
         }
         if(roomByPlayer[id]){
             socket.join(roomByPlayer[id]);
-            names = [];
-            playersByRoom[roomID].forEach(player => {
-                names.push(nameByPlayer[player]);
-            });
-            io.to(roomID).emit('joined-room', roomByPlayer[id], playersByRoom[roomByPlayer[id]], names, maxPlayers);
+            roomChange(roomByPlayer[id]);
         }
     })
     socket.on('enter-name', (id,nickname) => {
@@ -76,7 +122,11 @@ io.on('connection', (socket) => {
     //Below are a list of callbacks for different events
     //Some have parameters and some don't
     socket.on('disconnect', () => {
+        const _sID = socket.id;
         //TO DO: Remove player from room when disconnected for a certain amount of time
+        const id = playerBySocket[_sID];
+        disconnectedPlayers[id] = setTimeout(removePlayer, 10000, id);
+        delete playerBySocket[_sID];
     });
     socket.on('create-room', (id) => {
         if(roomByPlayer[id]){
@@ -89,13 +139,8 @@ io.on('connection', (socket) => {
         roomGameState[roomID] = 'LOBBY';
         roomByPlayer[id] = roomID;
         socket.join(roomID);
-        names = [];
-        playersByRoom[roomID].forEach(player => {
-            names.push(nameByPlayer[player]);
-        });
-        io.to(roomID).emit('joined-room', roomID, playersByRoom[roomID], names, maxPlayers);
+        roomChange(roomID);
     })
-    const maxPlayers = 10;
     socket.on('join-room', (id, roomID) => {
         if(roomByPlayer[id]){
             socket.emit('error', `You are already in room ${roomByPlayer[id]}`);
@@ -107,14 +152,8 @@ io.on('connection', (socket) => {
                 socket.emit('error', 'This room is full');
                 return;
             }
-            playersByRoom[roomID].push(id);
-            roomByPlayer[id] = roomID;
             socket.join(roomID);
-            names = [];
-            playersByRoom[roomID].forEach(player => {
-                names.push(nameByPlayer[player]);
-            });
-            io.to(roomID).emit('joined-room', roomID, playersByRoom[roomID], names, maxPlayers);
+            enterRoom(id, roomID);
         }
         else{
             socket.emit('error', 'That room does not exist');
@@ -125,19 +164,7 @@ io.on('connection', (socket) => {
         if(roomID){
             socket.leave(roomID);
             socket.emit('left-room');
-            roomByPlayer[id] = null;
-            index = playersByRoom[roomID].indexOf(id);
-            playersByRoom[roomID].splice(index,1);
-            if(playersByRoom[roomID].length <= 0){
-                delete playersByRoom[roomID];
-            }
-            else {
-                names = [];
-                playersByRoom[roomID].forEach(player => {
-                    names.push(nameByPlayer[player]);
-                });
-                io.to(roomID).emit('joined-room', roomID, playersByRoom[roomID], names, maxPlayers);
-            }
+            leaveRoom(id, roomID);
         }
         else{
             socket.emit('error', 'You aren\'t in a room');
