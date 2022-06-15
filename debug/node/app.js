@@ -13,12 +13,11 @@ const io = new Server(server);
 //this is a middleware to read/write cookies so if players disconnect by accident they
 //don't lose all progress
 const cookieParser = require('cookie-parser');
-
+//This should generate unique IDs for each user
 const {v4 : uuidv4} = require('uuid');
-
+//Used to fetch the user ID so we don't have to rely on socket.id
 app.use(cookieParser());
 
-var gycID;
 //when a GET http request is sent to root of the website, return an html page
 app.get('/', (req, res) => {
     gycID = req.cookies['gycID'];
@@ -29,7 +28,10 @@ app.get('/', (req, res) => {
     res.sendFile(__dirname + '/index.html');
 });
 
+//All of this information about connected players and rooms might
+//need to be stored in databases in production
 
+//When a player connects, their socket.id is mapped to their cookie id
 var playerBySocket = {}
 //When a player disconnects, they will be removed from any lobby
 //if they don't reconnect for a certain time
@@ -128,7 +130,6 @@ io.on('connection', (socket) => {
     //Below are a list of callbacks for different events
     //Some have parameters and some don't
     socket.on('disconnect', () => {
-        console.log('Player disconnected');
         const _sID = socket.id;
         const id = playerBySocket[_sID];
         //If the disconnected player is in a room...
@@ -188,6 +189,10 @@ io.on('connection', (socket) => {
     socket.on('start-game', (id) => {
         roomID = roomByPlayer[id];
         players = playersByRoom[roomID];
+        if(players.length <= 1){
+            socket.emit('error', 'You need at least 2 players to start a game');
+            return;
+        }
         //Prevent players from being removed via disconnected sockets
         //when the game starts. This is to prevent players who might
         //be suffering from temporary disconnects form being booted
@@ -195,18 +200,19 @@ io.on('connection', (socket) => {
         //game ends they should be removed from the room
         players.forEach(player => {
             if(disconnectedPlayers[player]){
-                console.log('Cancelled timeout');
                 clearTimeout(disconnectedPlayers[player]);
             }
         })
-        if(id == playersByRoom[roomID][0]){
-            console.log(`Starting game in room ${roomID}`);
+        if(id == players[0]){
             io.to(roomID).emit('game-start');
             gameState = roomGameState[roomID];
             gameState.state = 'QUESTIONING';
             gameState.questions = {};
             //TODO: Add timer to prevent idling players from stalling
             //the game indefinitely
+        }
+        else{
+            socket.emit('error', 'Only Player 1 can start the game');
         }
     })
     socket.on('submit-question', (id, question) => {
@@ -219,7 +225,6 @@ io.on('connection', (socket) => {
             gameState.questions[id] = question;
             if(Object.keys(gameState.questions).length == playersByRoom[roomID].length){
                 io.to(roomID).emit('end-question-phase');
-                console.log(gameState.questions);
             }
         }
     })
