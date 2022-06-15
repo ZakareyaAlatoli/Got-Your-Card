@@ -5,6 +5,8 @@
     </head>
     <body>
         <b id="name">USERNAME</b>
+        <!--Every submenu/screen is separated into divs for now
+        TODO: Make them separate pages?-->
         <div id="main-menu">
             <form id="name-form" action="">
                 <label>Name:
@@ -39,6 +41,17 @@
             </ol>
             <button onclick="leaveGame()">Leave Room</button>
         </div>
+        <div id="question-menu" style="display:none">
+            <form id="question-form" action="">
+                <label>Ask a question that you think the other players
+                    whould answer predictably
+                    <input id="input-question"/>
+                </label>
+                <button id="submit-question-btn">Submit</button>
+            </form>
+            <br>
+            <i>Other players are still writing questions...</i>
+        </div>
         <!--This loads the clientside socket.io code-->
         <script src="/socket.io/socket.io.js"></script>
         <script>
@@ -69,6 +82,17 @@
                 }
             });
 
+            var questionForm = document.getElementById('question-form');
+            var questionInput = document.getElementById('input-question');
+            //When the user submits text in the form, that message is
+            //emitted to the server
+            questionForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                if (questionInput.value) {
+                    socket.emit('submit-question', id, questionInput.value);
+                }
+            });
+
             //When a message is received from the server, it gets
             //displayed in the webpage
             var playerList = document.getElementById('player-list');
@@ -78,15 +102,25 @@
             const mainMenu = document.getElementById('main-menu');
             const navMenu = document.getElementById('navigation-menu');
             const lobbyMenu = document.getElementById('lobby');
+            const questionMenu = document.getElementById('question-menu');
+
+            //Socket events
             socket.on('name-set', (n) => {
                 username.textContent = n; 
                 mainMenu.style.display = "none";
                 navMenu.style.display = "block";
             });
             const playerCount = document.getElementById('player-count');
-            socket.on('room-state', (roomID, players, names, maxPlayers) => {
-                lobbyMenu.style.display = "block";
+            socket.on('room-state', (roomID, players, names, maxPlayers, state) => {
                 navMenu.style.display = "none";
+                //Go to correct room
+                if(state == 'LOBBY'){
+                    lobbyMenu.style.display = "block";
+                } 
+                else if(state == 'QUESTIONING'){
+                    questionMenu.style.display = "block";
+                }
+                //Populate player list
                 playerList.innerHTML = "";
                 playerCount.textContent = `(${players.length}\\${maxPlayers})`;
                 room.textContent = roomID;
@@ -97,18 +131,25 @@
                 });
             });
             socket.on('left-room', () => {
-                //room.innerHTML = "";
-                //playerList.innerHTML = "";
                 navMenu.style.display = "block";
                 lobbyMenu.style.display = "none";
             });
-
             socket.on('get-id', () => {
                 socket.emit('received-id', id);
             })
             socket.on('error', (msg) => {
                 alert(msg);
             })
+            socket.on('game-start', () => {
+                lobbyMenu.style.display = "none";
+                questionMenu.style.display = "block";
+            })
+            socket.on('end-question-phase', () => {
+                alert('QUESTION PHASE OVER');
+                //TODO: Add answering phase
+            })
+
+            //HELPER FUNCTIONS
             function changeName(){
                 navMenu.style.display = "none";
                 mainMenu.style.display = "block";
@@ -121,7 +162,8 @@
             }
             //TO DO: Start the game
             function startGame(){
-                console.log('START GAME TO BE IMPLEMENTED');
+                //console.log('START GAME TO BE IMPLEMENTED');
+                socket.emit('start-game', id);
             }
             //Grepper ftw
             function getCookie(name) {

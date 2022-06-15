@@ -63,12 +63,18 @@ function removePlayer(id){
     }
 }
 //Lets players know when someone joined or left
-function roomChange(roomID){
+function roomChange(roomID, socket = null){
     names = [];
     playersByRoom[roomID].forEach(player => {
         names.push(nameByPlayer[player]);
     });
-    io.to(roomID).emit('room-state', roomID, playersByRoom[roomID], names, maxPlayers);
+    state = roomGameState[roomID].state;
+    //For emitting to a single client
+    if(socket){
+        socket.emit('room-state', roomID, playersByRoom[roomID], names, maxPlayers, state);
+        return;
+    }
+    io.to(roomID).emit('room-state', roomID, playersByRoom[roomID], names, maxPlayers, state);
 }
 //Removes a player from a room. The server doesn't
 //use the websocket connection to determine if a 
@@ -108,7 +114,7 @@ io.on('connection', (socket) => {
         }
         if(roomByPlayer[id]){
             socket.join(roomByPlayer[id]);
-            roomChange(roomByPlayer[id]);
+            roomChange(roomByPlayer[id], socket);
         }
     })
     socket.on('enter-name', (id,nickname) => {
@@ -122,10 +128,17 @@ io.on('connection', (socket) => {
     //Below are a list of callbacks for different events
     //Some have parameters and some don't
     socket.on('disconnect', () => {
+        console.log('Player disconnected');
         const _sID = socket.id;
-        //TO DO: Remove player from room when disconnected for a certain amount of time
         const id = playerBySocket[_sID];
-        disconnectedPlayers[id] = setTimeout(removePlayer, 10000, id);
+        //If the disconnected player is in a room...
+        if(roomByPlayer[id]){
+            roomID = roomByPlayer[id];
+            //and the game hasn't started, time out player
+            if(roomGameState[roomID].state == 'LOBBY'){
+                disconnectedPlayers[id] = setTimeout(removePlayer, 10000, id);
+            }
+        }
         delete playerBySocket[_sID];
     });
     socket.on('create-room', (id) => {
@@ -133,10 +146,12 @@ io.on('connection', (socket) => {
             socket.emit('error', `You are already in room ${roomByPlayer[id]}`);
             return;
         }
-        //TO DO: Make roomIDs truly unique
+        //TODO: Make roomIDs truly unique
         roomID = uuidv4().substring(0,6);
         playersByRoom[roomID] = [id];
-        roomGameState[roomID] = 'LOBBY';
+        roomGameState[roomID] = {
+            state: 'LOBBY'
+        };
         roomByPlayer[id] = roomID;
         socket.join(roomID);
         roomChange(roomID);
@@ -168,6 +183,44 @@ io.on('connection', (socket) => {
         }
         else{
             socket.emit('error', 'You aren\'t in a room');
+        }
+    })
+    socket.on('start-game', (id) => {
+        roomID = roomByPlayer[id];
+        players = playersByRoom[roomID];
+        //Prevent players from being removed via disconnected sockets
+        //when the game starts. This is to prevent players who might
+        //be suffering from temporary disconnects form being booted
+        //from the lobby. If they are still not connected when the
+        //game ends they should be removed from the room
+        players.forEach(player => {
+            if(disconnectedPlayers[player]){
+                console.log('Cancelled timeout');
+                clearTimeout(disconnectedPlayers[player]);
+            }
+        })
+        if(id == playersByRoom[roomID][0]){
+            console.log(`Starting game in room ${roomID}`);
+            io.to(roomID).emit('game-start');
+            gameState = roomGameState[roomID];
+            gameState.state = 'QUESTIONING';
+            gameState.questions = {};
+            //TODO: Add timer to prevent idling players from stalling
+            //the game indefinitely
+        }
+    })
+    socket.on('submit-question', (id, question) => {
+        roomID = roomByPlayer[id];
+        gameState = roomGameState[roomID];
+        if(gameState.questions[id]){
+            socket.emit('error', 'You\'ve already submitted a question');
+        }
+        else{
+            gameState.questions[id] = question;
+            if(Object.keys(gameState.questions).length == playersByRoom[roomID].length){
+                io.to(roomID).emit('end-question-phase');
+                console.log(gameState.questions);
+            }
         }
     })
 });
