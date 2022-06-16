@@ -54,6 +54,13 @@
             <br>
             <i>Other players are still writing questions...</i>
         </div>
+        <div id="answer-menu" style="display:none;">
+            Answer the questions the other players asked
+            <ul id="question-list">
+
+            </ul>
+            <button onclick="submitAnswers()">Finished</button>
+        </div>
         <!--This loads the clientside socket.io code-->
         <script src="/socket.io/socket.io.js"></script>
         <script>
@@ -106,6 +113,7 @@
             const navMenu = document.getElementById('navigation-menu');
             const lobbyMenu = document.getElementById('lobby');
             const questionMenu = document.getElementById('question-menu');
+            const answerMenu = document.getElementById('answer-menu');
 
             //Socket events
             socket.on('name-set', (n) => {
@@ -152,9 +160,36 @@
                 lobbyMenu.style.display = "none";
                 questionMenu.style.display = "block";
             })
-            socket.on('end-question-phase', () => {
-                alert('QUESTION PHASE OVER');
+            const questionList = document.getElementById('question-list');
+            var answers = {};
+            socket.on('answer-phase', (questions) => {
+                questionMenu.style.display = "none";
+                answerMenu.style.display = "block";
                 //TODO: Add answering phase
+                //We iterate through these to make sure we don't
+                //display a player's own question
+                var keys = Object.keys(questions);
+                keys.forEach(key => {
+                    if(key != id){
+                        //item = createQuestionPrompt(questions[key]);
+                        var item = document.createElement('li');
+                        var prompt = document.createElement('div');
+                        prompt.textContent = questions[key];
+                        var input = document.createElement('input');
+                        input.setAttribute('type','text');
+                        input.addEventListener('input', (e) => {
+                            answers[key] = e.target.value;
+                        })
+
+                        item.appendChild(prompt);
+                        item.appendChild(input);
+                        questionList.appendChild(item);
+                    }
+                });
+            })
+            socket.on('matching-phase', () => {
+                //TODO: Handle matching phase
+                alert('MATCHING PHASE TIME!');
             })
 
             //HELPER FUNCTIONS
@@ -171,6 +206,9 @@
             //TO DO: Start the game
             function startGame(){
                 socket.emit('start-game', id);
+            }
+            function submitAnswers(){
+                socket.emit('submit-answers', id, answers);
             }
             //Grepper ftw
             function getCookie(name) {

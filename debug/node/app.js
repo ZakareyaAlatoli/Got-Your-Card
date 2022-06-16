@@ -224,8 +224,27 @@ io.on('connection', (socket) => {
         else{
             gameState.questions[id] = question;
             if(Object.keys(gameState.questions).length == playersByRoom[roomID].length){
-                io.to(roomID).emit('end-question-phase');
+                io.to(roomID).emit('answer-phase', gameState.questions);
+                gameState.state = 'ANSWERING';
+                gameState.answers = {};
             }
+        }
+        //TODO: Add timeout
+    })
+    socket.on('submit-answers', (id, answers) => {
+        roomID = roomByPlayer[id];
+        gameState = roomGameState[roomID];
+        //We can allow players to submit answers multiple times
+        //but their previous answers are overwritten
+        gameState.answers[id] = answers;
+        //When all players have submitted answers, move on to the next
+        //phase
+        //TODO: Add timeout
+        if(Object.keys(gameState.answers).length == playersByRoom[roomID].length){
+            //TODO: Add matching phase
+            gameState.state = 'MATCHING';
+            gameState.matches = {};
+            io.to(roomID).emit('matching-phase');
         }
     })
 });
