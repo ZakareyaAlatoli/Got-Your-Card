@@ -33,6 +33,8 @@ app.get('/', (req, res) => {
 
 //When a player connects, their socket.id is mapped to their cookie id
 var playerBySocket = {}
+
+var socketByPlayer = {}
 //When a player disconnects, they will be removed from any lobby
 //if they don't reconnect for a certain time
 var disconnectedPlayers = {}
@@ -58,6 +60,7 @@ const maxPlayers = 10;
 function removePlayer(id){
     delete disconnectedPlayers[id];
     delete nameByPlayer[id];
+    delete socketByPlayer[id];
     const roomID = roomByPlayer[id];
     delete roomByPlayer[id];
     if(roomID){
@@ -105,8 +108,10 @@ io.on('connection', (socket) => {
     socket.emit('get-id');
     //When it is received we check to see if they are already in a lobby, so 
     //we can rejoin them
+    //TODO: Validate id
     socket.on('received-id', (id) => {
         playerBySocket[socket.id] = id;
+        socketByPlayer[id] = socket;
         if(disconnectedPlayers[id]){
             clearTimeout(disconnectedPlayers[id]);
             delete disconnectedPlayers[id];
@@ -141,6 +146,7 @@ io.on('connection', (socket) => {
             }
         }
         delete playerBySocket[_sID];
+        delete socketByPlayer[id];
     });
     socket.on('create-room', (id) => {
         if(roomByPlayer[id]){
@@ -189,10 +195,16 @@ io.on('connection', (socket) => {
     socket.on('start-game', (id) => {
         roomID = roomByPlayer[id];
         players = playersByRoom[roomID];
+        gameState = roomGameState[roomID];
         if(players.length <= 1){
             socket.emit('error', 'You need at least 2 players to start a game');
             return;
         }
+        if(gameState.state != 'LOBBY' && gameState.state != 'RESULTS'){
+            socket.emit('error', 'A game is already in progress in this room');
+            return;
+        }
+
         //Prevent players from being removed via disconnected sockets
         //when the game starts. This is to prevent players who might
         //be suffering from temporary disconnects form being booted
@@ -204,10 +216,16 @@ io.on('connection', (socket) => {
             }
         })
         if(id == players[0]){
-            io.to(roomID).emit('game-start');
-            gameState = roomGameState[roomID];
-            gameState.state = 'QUESTIONING';
+            //Reset game state if we are starting over
+            delete gameState.questions;
+            delete gameState.answers;
+            delete gameState.matches;
+            delete gameState.expectedMatchOrder;
+
             gameState.questions = {};
+
+            gameState.state = 'QUESTIONING';
+            io.to(roomID).emit('game-start');
             //TODO: Add timer to prevent idling players from stalling
             //the game indefinitely
         }
@@ -218,6 +236,10 @@ io.on('connection', (socket) => {
     socket.on('submit-question', (id, question) => {
         roomID = roomByPlayer[id];
         gameState = roomGameState[roomID];
+        if(gameState.state != 'QUESTIONING'){
+            socket.emit('error', 'You are not in the question phase');
+            return;
+        }
         if(gameState.questions[id]){
             socket.emit('error', 'You\'ve already submitted a question');
         }
@@ -234,17 +256,88 @@ io.on('connection', (socket) => {
     socket.on('submit-answers', (id, answers) => {
         roomID = roomByPlayer[id];
         gameState = roomGameState[roomID];
+        if(gameState.state != 'ANSWERING'){
+            socket.emit('error', 'You are not in the answering phase');
+            return;
+        }
         //We can allow players to submit answers multiple times
         //but their previous answers are overwritten
         gameState.answers[id] = answers;
         //When all players have submitted answers, move on to the next
         //phase
         //TODO: Add timeout
+        //TODO: Prevent players from submitting data for a phase the room is not in
         if(Object.keys(gameState.answers).length == playersByRoom[roomID].length){
             //TODO: Add matching phase
+            //For each player we randomize the order the answers were given
             gameState.state = 'MATCHING';
             gameState.matches = {};
-            io.to(roomID).emit('matching-phase');
+            gameState.expectedMatchOrder = {}
+            players = playersByRoom[roomID];
+             
+            players.forEach(player => {
+                names = [];
+                answers = [];
+                question = gameState.questions[player];
+                expectedOrder = [];
+                for(i=0; i<players.length; i++){
+                    if(players[i] != player){
+                        expectedOrder.push(i);
+                        currentPlayer = players[i];
+                        previousAnswers = gameState.answers[currentPlayer];
+                        for(key in previousAnswers){
+                            answers.push(previousAnswers[key]);
+                        }
+                    }
+                }
+                //When a player submits their matches, it is in the form of an array of indices. The names
+                //are sent to the client in the order the answers are to be matched. For instance, if the 
+                //expectedOrder array is [0,3,1,4], then the names sent to the client are [player0, player3, player1, player4]
+                //Only the player's own name is not sent. When checking if the matches are correct, the player's own index
+                //in the playersByRoom array is skipped over. So if the submitting player is player3, the array they would send
+                //is [0,1,4],
+                gameState.expectedMatchOrder[player] = expectedOrder.sort(() => Math.random() - 0.5);
+                gameState.expectedMatchOrder[player].forEach(index => {
+                    names.push(nameByPlayer[players[index]]);
+                })
+                socketByPlayer[player].emit('matching-phase', names, question, answers);
+            })
+        }
+    })
+    socket.on('submit-matches', (id, matches) => {
+        roomID = roomByPlayer[id];
+        gameState = roomGameState[roomID];
+        if(gameState.state != 'MATCHING'){
+            socket.emit('error', 'You are not in the matching phase');
+            return;
+        }
+
+        gameState.matches[id] = matches;
+        if(Object.keys(gameState.matches).length == playersByRoom[roomID].length){
+            gameState.state = 'RESULTS';
+            scores = [];
+            //Check score of player
+            players = playersByRoom[roomID];
+            names = [];
+            players.forEach(player => {
+                
+                expectedOrder = gameState.expectedMatchOrder[player];
+                actualOrder = gameState.matches[player];
+                score = 0;
+                playerIndex = players.indexOf(player);
+                for(i=0; i<expectedOrder.length; i++){
+                    expected = expectedOrder[i];
+                    if(expected >= playerIndex){
+                        expected -= 1;
+                    }
+                    if(expected == actualOrder[i]){
+                        score += 1;
+                    }
+                }
+                names.push(nameByPlayer[player]);
+                scores.push(score);
+            })
+            io.to(roomID).emit('results-phase', names, scores);
         }
     })
 });

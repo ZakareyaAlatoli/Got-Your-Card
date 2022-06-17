@@ -61,6 +61,33 @@
             </ul>
             <button onclick="submitAnswers()">Finished</button>
         </div>
+        <div id="match-menu" style="display:none;">
+            <div>
+                You asked:
+                <i id="question-display">
+
+                </i>
+            </div>
+            <div id="answer-list">
+
+            </div>
+            <br>
+            <div id="name-list">
+
+            </div>
+            <button onclick="submitMatches()">Finish</button>
+        </div>
+        <div id="results-menu" style="display: none;">
+            <div>
+                Winner: 
+                <i id="winner-display">TIE GAME</i>
+            </div>
+            <ul id="score-list">
+
+            </ul>
+            <button onclick="startGame()">Play Again</button>
+            <button onclick="leaveGame()">Leave</button>
+        </div>
         <!--This loads the clientside socket.io code-->
         <script src="/socket.io/socket.io.js"></script>
         <script>
@@ -114,6 +141,8 @@
             const lobbyMenu = document.getElementById('lobby');
             const questionMenu = document.getElementById('question-menu');
             const answerMenu = document.getElementById('answer-menu');
+            const matchMenu = document.getElementById('match-menu');
+            const resultsMenu = document.getElementById('results-menu');
 
             //Socket events
             socket.on('name-set', (n) => {
@@ -122,6 +151,7 @@
                 navMenu.style.display = "block";
             });
             const playerCount = document.getElementById('player-count');
+            //TODO: Fix items not showing up when reloading
             socket.on('room-state', (roomID, players, names, maxPlayers, state) => {
                 navMenu.style.display = "none";
                 //Go to correct room
@@ -130,6 +160,15 @@
                 } 
                 else if(state == 'QUESTIONING'){
                     questionMenu.style.display = "block";
+                }
+                else if(state == 'ANSWERING'){
+                    answerMenu.style.display = "block";
+                }
+                else if(state == 'MATCHING'){
+                    matchMenu.style.display = "block";
+                }
+                else if(state == 'RESULTS'){
+                    resultsMenu.style.display = "block";
                 }
                 //Populate player list
                 playerList.innerHTML = "";
@@ -144,6 +183,7 @@
             socket.on('left-room', () => {
                 navMenu.style.display = "block";
                 lobbyMenu.style.display = "none";
+                resultsMenu.style.display = "none";
             });
             socket.on('get-id', () => {
                 socket.emit('received-id', id);
@@ -158,6 +198,7 @@
             })
             socket.on('game-start', () => {
                 lobbyMenu.style.display = "none";
+                resultsMenu.style.display = "none";
                 questionMenu.style.display = "block";
             })
             const questionList = document.getElementById('question-list');
@@ -165,7 +206,6 @@
             socket.on('answer-phase', (questions) => {
                 questionMenu.style.display = "none";
                 answerMenu.style.display = "block";
-                //TODO: Add answering phase
                 //We iterate through these to make sure we don't
                 //display a player's own question
                 var keys = Object.keys(questions);
@@ -187,9 +227,124 @@
                     }
                 });
             })
-            socket.on('matching-phase', () => {
-                //TODO: Handle matching phase
-                alert('MATCHING PHASE TIME!');
+            var matches = [];
+            const questionDisplay = document.getElementById('question-display');
+            const answerList = document.getElementById('answer-list');
+            const nameList = document.getElementById('name-list');
+            var selectedAnswer;
+            socket.on('matching-phase', (names, question, answers) => {
+                answerMenu.style.display = "none";
+                matchMenu.style.display = "block";
+                questionDisplay.textContent = question;
+
+                for(i=0; i<answers.length; i++){
+                    var answerItem = document.createElement('button');
+                    answerItem.classList.add('answer');
+                    answerItem.id = `${i}`;
+                    answerItem.textContent = answers[i];
+                    answerItem.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        //If an answer is selected...
+                        if(selectedAnswer){
+                            //and you click on a different one
+                            if(e.target != selectedAnswer){
+                                //switch their places
+                                selectedNewParent = e.target.parentElement;
+                                targetNewParent = selectedAnswer.parentElement;
+
+                                selectedNewParent.appendChild(selectedAnswer);
+                                if(selectedNewParent.classList.contains('drop')){
+                                    matches[selectedNewParent.id] = parseInt(selectedAnswer.id);
+                                }
+                                targetNewParent.appendChild(e.target);
+                                if(targetNewParent.classList.contains('drop')){
+                                    matches[targetNewParent.id] = parseInt(e.target.id);
+                                }
+
+                                clearSelection();
+                            }
+                            else{
+                                clearSelection();
+                            }
+                        }
+                        else{
+                            selectAnswer(e.target);
+                        }
+                    })
+                    answerList.appendChild(answerItem);
+
+                    var nameItem = document.createElement('div');
+                    nameList.appendChild(nameItem);
+
+                    var nameLabelItem = document.createElement('span');
+                    nameLabelItem.textContent = names[i];
+                    nameItem.appendChild(nameLabelItem);
+
+                    var dropItem = document.createElement('span');
+                    dropItem.classList.add('drop');
+                    dropItem.style.borderStyle = "solid";
+                    dropItem.id = `${i}`;
+                    dropItem.textContent = "DROP HERE";
+                    dropItem.addEventListener('click', (e) => {
+                        //If you selected an answer...
+                        if(selectedAnswer){
+                            //and the drop zone is occupied...
+                            if(e.target.childElementCount > 0){
+                                //switch them
+                                selectedNewParent = e.target;
+                                occupantAnswer = e.target.firstChild;
+
+                                occupantNewParent = selectedAnswer.parentElement;
+                                occupantNewParent.appendChild(occupantAnswer);
+                                matches[occupantNewParent.id] = parseInt(occupantAnswer.id);
+
+                                e.target.appendChild(selectedAnswer);
+                                matches[e.target.id] = parseInt(selectedAnswer.id);
+                                
+                                clearSelection();
+                            }
+                            //and the zone is NOT occupied...
+                            else{
+                                e.target.appendChild(selectedAnswer);
+                                matches[e.target.id] = parseInt(selectedAnswer.id);
+                                clearSelection();
+                            }
+                        }
+                    })
+                    nameItem.appendChild(dropItem);
+
+
+                    matches.push(-1);
+                }
+            })
+            const winnerDisplay = document.getElementById('winner-display');
+            const scoreList = document.getElementById('score-list');
+            socket.on('results-phase', (names, scores) => {
+                matchMenu.style.display = "none";
+                resultsMenu.style.display = "block";
+                var maxScore = scores[0];
+                var tied = false;
+                var winner = names[0];
+
+                var listItem = document.createElement('li');
+                listItem.textContent = `${names[0]}: ${scores[0]}`;
+                scoreList.appendChild(listItem);
+                for(i=1; i<names.length; i++){
+                    if(scores[i] > maxScore){
+                        tied = false;
+                        maxScore = scores[i];
+                        winner = names[i];
+                    }
+                    else if(scores[i] == maxScore){
+                        tied = true;
+                    }
+                    listItem = document.createElement('li');
+                    listItem.textContent = `${names[i]}: ${scores[i]}`;
+                    scoreList.appendChild(listItem);
+                }
+                if(!tied){
+                    winnerDisplay.textContent = winner;
+                }
             })
 
             //HELPER FUNCTIONS
@@ -209,6 +364,17 @@
             }
             function submitAnswers(){
                 socket.emit('submit-answers', id, answers);
+            }
+            function submitMatches(){
+                socket.emit('submit-matches', id, matches);
+            }
+            function clearSelection(){
+                selectedAnswer.style.color = "black";
+                selectedAnswer = null;
+            }
+            function selectAnswer(answer){
+                answer.style.color = "green";
+                selectedAnswer = answer;
             }
             //Grepper ftw
             function getCookie(name) {
