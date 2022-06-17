@@ -286,7 +286,9 @@ io.on('connection', (socket) => {
                         currentPlayer = players[i];
                         previousAnswers = gameState.answers[currentPlayer];
                         for(key in previousAnswers){
-                            answers.push(previousAnswers[key]);
+                            if(key == player){
+                                answers.push(previousAnswers[key]);
+                            }
                         }
                     }
                 }
