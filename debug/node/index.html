@@ -53,6 +53,9 @@
             </form>
             <br>
             <i>Other players are still writing questions...</i>
+            <br>
+            <br>
+            <button onclick="endGame()">End Game</button>
         </div>
         <div id="answer-menu" style="display:none;">
             Answer the questions the other players asked
@@ -60,6 +63,9 @@
 
             </ul>
             <button onclick="submitAnswers()">Finished</button>
+            <br>
+            <br>
+            <button onclick="endGame()">End Game</button>
         </div>
         <div id="match-menu" style="display:none;">
             <div>
@@ -76,6 +82,9 @@
 
             </div>
             <button onclick="submitMatches()">Finish</button>
+            <br>
+            <br>
+            <button onclick="endGame()">End Game</button>
         </div>
         <div id="results-menu" style="display: none;">
             <div>
@@ -91,6 +100,7 @@
         <!--This loads the clientside socket.io code-->
         <script src="/socket.io/socket.io.js"></script>
         <script>
+            //TODO: Prevent idling so cloud server doesn't auto-disconnect
             //io() normally takes the URL to connect to as an argument. If none is
             //provided, it defaults to the host that serves this page
             var socket = io();
@@ -144,32 +154,18 @@
             const matchMenu = document.getElementById('match-menu');
             const resultsMenu = document.getElementById('results-menu');
 
+            var currentMenu = mainMenu;
+
             //Socket events
             socket.on('name-set', (n) => {
                 username.textContent = n; 
                 mainMenu.style.display = "none";
                 navMenu.style.display = "block";
+                currentMenu = navMenu;
             });
             const playerCount = document.getElementById('player-count');
             //TODO: Fix items not showing up when reloading
-            socket.on('room-state', (roomID, players, names, maxPlayers, state) => {
-                navMenu.style.display = "none";
-                //Go to correct room
-                if(state == 'LOBBY'){
-                    lobbyMenu.style.display = "block";
-                } 
-                else if(state == 'QUESTIONING'){
-                    questionMenu.style.display = "block";
-                }
-                else if(state == 'ANSWERING'){
-                    answerMenu.style.display = "block";
-                }
-                else if(state == 'MATCHING'){
-                    matchMenu.style.display = "block";
-                }
-                else if(state == 'RESULTS'){
-                    resultsMenu.style.display = "block";
-                }
+            socket.on('room-state', (roomID, players, names, maxPlayers) => {
                 //Populate player list
                 playerList.innerHTML = "";
                 playerCount.textContent = `(${players.length}\\${maxPlayers})`;
@@ -180,8 +176,14 @@
                     playerList.appendChild(item);
                 });
             });
+            socket.on('enter-lobby', () => {
+                currentMenu.style.display = "none";
+                lobbyMenu.style.display = "block";
+                currentMenu = lobbyMenu;
+            })
             socket.on('left-room', () => {
                 navMenu.style.display = "block";
+                currentMenu = navMenu;
                 lobbyMenu.style.display = "none";
                 resultsMenu.style.display = "none";
             });
@@ -197,21 +199,22 @@
                 }, 5000);
             })
             socket.on('game-start', () => {
-                lobbyMenu.style.display = "none";
-                resultsMenu.style.display = "none";
+                currentMenu.style.display = "none";
                 questionMenu.style.display = "block";
+                currentMenu = questionMenu;
             })
             const questionList = document.getElementById('question-list');
             var answers = {};
             socket.on('answer-phase', (questions) => {
-                questionMenu.style.display = "none";
+                currentMenu.style.display = "none";
                 answerMenu.style.display = "block";
+                currentMenu = answerMenu;
+                questionList.innerHTML = "";
                 //We iterate through these to make sure we don't
                 //display a player's own question
                 var keys = Object.keys(questions);
                 keys.forEach(key => {
                     if(key != id){
-                        //item = createQuestionPrompt(questions[key]);
                         var item = document.createElement('li');
                         var prompt = document.createElement('div');
                         prompt.textContent = questions[key];
@@ -233,9 +236,13 @@
             const nameList = document.getElementById('name-list');
             var selectedAnswer;
             socket.on('matching-phase', (names, question, answers) => {
-                answerMenu.style.display = "none";
+                currentMenu.style.display = "none";
                 matchMenu.style.display = "block";
+                currentMenu = matchMenu;
+
                 questionDisplay.textContent = question;
+                answerList.innerHTML = "";
+                nameList.innerHTML = "";
 
                 for(i=0; i<answers.length; i++){
                     var answerItem = document.createElement('button');
@@ -320,8 +327,11 @@
             const winnerDisplay = document.getElementById('winner-display');
             const scoreList = document.getElementById('score-list');
             socket.on('results-phase', (names, scores) => {
-                matchMenu.style.display = "none";
+                currentMenu.style.display = "none";
                 resultsMenu.style.display = "block";
+                currentMenu = resultsMenu;
+                scoreList.innerHTML = "";
+
                 var maxScore = scores[0];
                 var tied = false;
                 var winner = names[0];
@@ -345,6 +355,12 @@
                 if(!tied){
                     winnerDisplay.textContent = winner;
                 }
+                else{
+                    winnerDisplay.textContent = "TIE GAME";
+                }
+            })
+            socket.on('heartbeat', () => {
+                socket.emit('heartbeat', id);
             })
 
             //HELPER FUNCTIONS
@@ -361,6 +377,9 @@
             //TO DO: Start the game
             function startGame(){
                 socket.emit('start-game', id);
+            }
+            function endGame(){
+                socket.emit('end-game', id);
             }
             function submitAnswers(){
                 socket.emit('submit-answers', id, answers);

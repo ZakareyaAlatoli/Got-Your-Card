@@ -14,7 +14,7 @@ const io = new Server(server);
 //don't lose all progress
 const cookieParser = require('cookie-parser');
 //This should generate unique IDs for each user
-const {v4 : uuidv4} = require('uuid');
+const {v4 : uuidv4 } = require('uuid');
 //Used to fetch the user ID so we don't have to rely on socket.id
 app.use(cookieParser());
 
@@ -37,7 +37,9 @@ var playerBySocket = {}
 var socketByPlayer = {}
 //When a player disconnects, they will be removed from any lobby
 //if they don't reconnect for a certain time
-var disconnectedPlayers = {}
+var disconnectedPlayers = []
+//Used to remove timeout delays for any reason
+var timeouts = {}
 //Keeps track of which players are in a given room
 var playersByRoom = {}
 //Keeps track of which room a player is in in case they disconnect for a moment
@@ -58,7 +60,10 @@ const maxPlayers = 10;
 
 //HELPER FUNCTIONS
 function removePlayer(id){
-    delete disconnectedPlayers[id];
+    console.log(`${id} has been removed`);
+    index = disconnectedPlayers.indexOf(id);
+    disconnectedPlayers.splice(index, 1);
+    delete timeouts[id];
     delete nameByPlayer[id];
     delete socketByPlayer[id];
     const roomID = roomByPlayer[id];
@@ -73,13 +78,12 @@ function roomChange(roomID, socket = null){
     playersByRoom[roomID].forEach(player => {
         names.push(nameByPlayer[player]);
     });
-    state = roomGameState[roomID].state;
     //For emitting to a single client
     if(socket){
-        socket.emit('room-state', roomID, playersByRoom[roomID], names, maxPlayers, state);
+        socket.emit('room-state', roomID, playersByRoom[roomID], names, maxPlayers);
         return;
     }
-    io.to(roomID).emit('room-state', roomID, playersByRoom[roomID], names, maxPlayers, state);
+    io.to(roomID).emit('room-state', roomID, playersByRoom[roomID], names, maxPlayers);
 }
 //Removes a player from a room. The server doesn't
 //use the websocket connection to determine if a 
@@ -99,6 +103,202 @@ function enterRoom(id, roomID){
     playersByRoom[roomID].push(id);
     roomChange(roomID);
 }
+function endGame(roomID){
+    gameState = roomGameState[roomID];
+    if(!gameState){
+        console.error(`${roomID} is not a valid roomID`);
+        return;
+    }
+
+    if(gameState.state != 'LOBBY' && gameState.state != 'RESULTS'){
+        delete gameState.questions;
+        delete gameState.answers;
+        delete gameState.matches;
+        delete gameState.expectedMatchOrder;
+        clearTimeout(gameState.timer);
+        delete gameState.timer;
+
+        players = playersByRoom[roomID];
+        players.forEach(player => {
+            //The game has ended, so disconnected players will be removed
+            //if they don't reconnect
+            //TODO: Make sure players who reconnect stay in their room
+            if(disconnectedPlayers.includes(player)){
+                console.log(`${player} will be removed if they don't reconnect in 10 seconds`);
+                timeouts[player] = setTimeout(removePlayer, 10000, player);
+                io.to(roomID).emit('heartbeat');
+            }
+        });
+        gameState.state = 'LOBBY';
+        io.to(roomID).emit('enter-lobby');
+        return;
+    }
+    console.error(`Room ${roomID} does not have a game in progress`)
+}
+function closeRoom(roomID){
+    delete roomGameState[roomID];
+    players = playersByRoom[roomID];
+    if(players){
+        players.forEach(player => {
+            delete roomByPlayer[player];
+        })
+    }
+}
+//Phase controls
+function enterQuestionPhase(roomID){
+    players = playersByRoom[roomID];
+    gameState = roomGameState[roomID];
+    gameState.state = 'QUESTIONING';
+
+    gameState.questions = {};
+    //If players aren't done with questions after the time limit
+    //fill out their answers
+    gameState.timer = setTimeout(() => {
+        players.forEach(player => {
+            //If a player has not submitted a question fill them in
+            //with one
+            if(!gameState.questions[player]){
+                gameState.questions[player] = 'NO QUESTION SUBMITTED';
+            }
+        });
+        enterAnswerPhase(roomID);
+    }, 60000);
+
+    io.to(roomID).emit('game-start');
+}
+function enterAnswerPhase(roomID){
+    players = playersByRoom[roomID];
+    gameState = roomGameState[roomID];
+    gameState.state = 'ANSWERING';
+
+    gameState.answers = {};
+    clearTimeout(gameState.timer);
+
+    gameState.timer = setTimeout(() => {
+        players.forEach(answerer => {
+            //If a player hasn't submitted answers...
+            if(!gameState.answers[answerer]){
+                gameState.answers[answerer] = {};
+                players.forEach(questioner => {
+                    if(answerer != questioner){
+                        //Generate them placeholder answers
+                        gameState.answers[answerer][questioner] = 'NO ANSWER GIVEN';
+                    }
+                })
+            }
+            //Else if a player HAS submitted answers...
+            else{
+                players.forEach(questioner => {
+                    if(answerer != questioner){
+                        //but an answer was not given to a particular question...
+                        if(!gameState.answers[answerer][questioner]){
+                            gameState.answers[answerer][questioner] = 'NO ANSWER GIVEN';
+                        }
+                    }
+                })
+            }
+        })
+        enterMatchPhase(roomID);
+    }, 60000);
+
+    io.to(roomID).emit('answer-phase', gameState.questions);
+}
+function enterMatchPhase(roomID){
+    players = playersByRoom[roomID];
+    gameState = roomGameState[roomID];
+    gameState.state = 'MATCHING';
+    //For each player we randomize the order the answers were given
+    
+    gameState.matches = {};
+    gameState.expectedMatchOrder = {}
+    clearTimeout(gameState.timer);
+    
+    gameState.timer = setTimeout(() => {
+        players.forEach(player => {
+            if(!gameState.matches[player]){
+                gameState.matches[player] = new Array(players.length-1).fill(-1);
+            }
+        })
+        enterResultsPhase(roomID);
+    }, 60000);
+    players.forEach(player => {
+        names = [];
+        answers = [];
+        question = gameState.questions[player];
+        expectedOrder = [];
+        for(i=0; i<players.length; i++){
+            if(players[i] != player){
+                expectedOrder.push(i);
+                currentPlayer = players[i];
+                previousAnswers = gameState.answers[currentPlayer];
+                for(key in previousAnswers){
+                    if(key == player){
+                        answers.push(previousAnswers[key]);
+                    }
+                }
+            }
+        }
+        //When a player submits their matches, it is in the form of an array of indices. The names
+        //are sent to the client in the order the answers are to be matched. For instance, if the 
+        //expectedOrder array is [0,3,1,4], then the names sent to the client are [player0, player3, player1, player4]
+        //Only the player's own name is not sent. When checking if the matches are correct, the player's own index
+        //in the playersByRoom array is skipped over. So if the submitting player is player3, the array they would send
+        //is [0,1,4],
+        gameState.expectedMatchOrder[player] = expectedOrder.sort(() => Math.random() - 0.5);
+        gameState.expectedMatchOrder[player].forEach(index => {
+            names.push(nameByPlayer[players[index]]);
+        })
+        socketByPlayer[player].emit('matching-phase', names, question, answers);
+    })
+}
+function enterResultsPhase(roomID){ 
+    players = playersByRoom[roomID];
+    gameState = roomGameState[roomID];
+    gameState.state = 'RESULTS';
+
+    clearTimeout(gameState.timer);
+
+    scores = [];
+    //Check score of player
+    players = playersByRoom[roomID];
+    names = [];
+    players.forEach(player => {
+        //The game has ended, so disconnected players will be removed
+        //if they don't reconnect
+        //TODO: Make sure players who reconnect stay in their room
+        if(disconnectedPlayers.includes(player)){
+            console.log(`${player} will be removed if they don't reconnect in 10 seconds`);
+            timeouts[player] = setTimeout(removePlayer, 10000, player);
+            io.to(roomID).emit('heartbeat');
+        }
+        expectedOrder = gameState.expectedMatchOrder[player];
+        actualOrder = gameState.matches[player];
+        score = 0;
+        playerIndex = players.indexOf(player);
+        for(i=0; i<expectedOrder.length; i++){
+            expected = expectedOrder[i];
+            if(expected >= playerIndex){
+                expected -= 1;
+            }
+            if(expected == actualOrder[i]){
+                score += 1;
+            }
+        }
+        names.push(nameByPlayer[player]);
+        scores.push(score);
+    })
+
+    io.to(roomID).emit('results-phase', names, scores);
+}
+
+
+
+
+
+
+
+
+
 
 //this sets up a callback when a client connects to the server
 io.on('connection', (socket) => {
@@ -110,19 +310,88 @@ io.on('connection', (socket) => {
     //we can rejoin them
     //TODO: Validate id
     socket.on('received-id', (id) => {
+        //If a player is already connected with this id...
+        if(socketByPlayer[id]){
+            socket.emit('error', 'Your ID is already taken. Try deleting your cookies');
+            return;
+        }
         playerBySocket[socket.id] = id;
         socketByPlayer[id] = socket;
-        if(disconnectedPlayers[id]){
-            clearTimeout(disconnectedPlayers[id]);
-            delete disconnectedPlayers[id];
+
+        roomID = roomByPlayer[id];
+        if(disconnectedPlayers.includes(id)){
+            clearTimeout(timeouts[id]);
+            delete timeouts[id];
+            index = disconnectedPlayers.indexOf(id);
+            disconnectedPlayers.splice(index, 1);
         }
         if(nameByPlayer[id]){
             socket.emit('name-set', nameByPlayer[id]);
         }
-        if(roomByPlayer[id]){
-            socket.join(roomByPlayer[id]);
-            roomChange(roomByPlayer[id], socket);
+        roomID = roomByPlayer[id];
+        //If a player refreshes the page they need to get back
+        //all the data they lost
+        if(roomID){
+            socket.join(roomID);
+            state = roomGameState[roomID].state;
+            players = playersByRoom[roomID];
+
+            if(state == 'LOBBY'){
+                roomChange(roomID, socket);
+                socket.emit('enter-lobby');
+            }
+            else if(state == 'QUESTIONING'){
+                socket.emit('game-start');
+            }
+            else if(state == 'ANSWERING'){
+                socket.emit('answer-phase', gameState.questions);
+            }
+            else if(state == 'MATCHING'){
+                names = [];
+                order = gameState.expectedMatchOrder[id];
+                order.forEach(i => {
+                    names.push(nameByPlayer[players[i]]);
+                })
+                question = gameState.questions[id];
+                answers = [];
+                players.forEach(player => {
+                    if(player != id){
+                        previousAnswers = gameState.answers[player];
+                        for(questioner in previousAnswers){
+                            if(questioner == id){
+                                answers.push(previousAnswers[questioner]);
+                            }
+                        }
+                    }
+                })
+                socket.emit('matching-phase', names, question, answers);
+            }
+            else if(state == 'RESULTS'){
+                names = [];
+                scores = [];
+                players.forEach(player => {
+                    expectedOrder = gameState.expectedMatchOrder[player];
+                    actualOrder = gameState.matches[player];
+                    score = 0;
+                    playerIndex = players.indexOf(player);
+                    for(i=0; i<expectedOrder.length; i++){
+                        expected = expectedOrder[i];
+                        if(expected >= playerIndex){
+                            expected -= 1;
+                        }
+                        if(expected == actualOrder[i]){
+                            score += 1;
+                        }
+                    }
+                    names.push(nameByPlayer[player]);
+                    scores.push(score);
+                })
+                socket.emit('results-phase', names, scores);
+            }
         }
+    })
+    socket.on('heartbeat', (id) => {
+        clearTimeout(timeouts[id]);
     })
     socket.on('enter-name', (id,nickname) => {
         if(roomByPlayer[id]){
@@ -137,17 +406,24 @@ io.on('connection', (socket) => {
     socket.on('disconnect', () => {
         const _sID = socket.id;
         const id = playerBySocket[_sID];
+        disconnectedPlayers.push(id);
+
         //If the disconnected player is in a room...
         if(roomByPlayer[id]){
             roomID = roomByPlayer[id];
+            gameState = roomGameState[roomID];
             //and the game hasn't started, time out player
-            if(roomGameState[roomID].state == 'LOBBY'){
-                disconnectedPlayers[id] = setTimeout(removePlayer, 10000, id);
+            if(gameState.state == 'LOBBY' || gameState.state == 'RESULTS'){
+                timeouts[id] = setTimeout(removePlayer, 10000, id);
             }
+        }
+        else{
+            timeouts[id] = setTimeout(removePlayer, 10000, id);
         }
         delete playerBySocket[_sID];
         delete socketByPlayer[id];
     });
+    //Fired when user wants to make a new room
     socket.on('create-room', (id) => {
         if(roomByPlayer[id]){
             socket.emit('error', `You are already in room ${roomByPlayer[id]}`);
@@ -161,6 +437,7 @@ io.on('connection', (socket) => {
         };
         roomByPlayer[id] = roomID;
         socket.join(roomID);
+        socket.emit('enter-lobby');
         roomChange(roomID);
     })
     socket.on('join-room', (id, roomID) => {
@@ -175,6 +452,7 @@ io.on('connection', (socket) => {
                 return;
             }
             socket.join(roomID);
+            socket.emit('enter-lobby');
             enterRoom(id, roomID);
         }
         else{
@@ -204,34 +482,44 @@ io.on('connection', (socket) => {
             socket.emit('error', 'A game is already in progress in this room');
             return;
         }
-
+        if(id != playersByRoom[roomID][0]){
+            socket.emit('error', 'Only Player 1 can start a game');
+            return;
+        }
         //Prevent players from being removed via disconnected sockets
         //when the game starts. This is to prevent players who might
         //be suffering from temporary disconnects form being booted
         //from the lobby. If they are still not connected when the
         //game ends they should be removed from the room
         players.forEach(player => {
-            if(disconnectedPlayers[player]){
-                clearTimeout(disconnectedPlayers[player]);
+            if(disconnectedPlayers.includes(player)){
+                clearTimeout(timeouts[player]);
             }
         })
-        if(id == players[0]){
-            //Reset game state if we are starting over
-            delete gameState.questions;
-            delete gameState.answers;
-            delete gameState.matches;
-            delete gameState.expectedMatchOrder;
-
-            gameState.questions = {};
-
-            gameState.state = 'QUESTIONING';
-            io.to(roomID).emit('game-start');
-            //TODO: Add timer to prevent idling players from stalling
-            //the game indefinitely
+        //Reset game state if we are starting over
+        delete gameState.questions;
+        delete gameState.answers;
+        delete gameState.matches;
+        delete gameState.expectedMatchOrder;
+        delete gameState.timer;
+        enterQuestionPhase(roomID);
+    })
+    socket.on('end-game', (id) => {
+        roomID = roomByPlayer[id];
+        if(!roomID){
+            socket.emit('error', 'You are not in a room');
+            return;
         }
-        else{
-            socket.emit('error', 'Only Player 1 can start the game');
+        gameState = roomGameState[roomID];
+        if(gameState.state == 'LOBBY' || gameState.state == 'RESULTS'){
+            socket.emit('error', 'Game is not in progress');
+            return;
         }
+        if(id != playersByRoom[roomID][0]){
+            socket.emit('error', 'Only Player 1 can end a game in progress');
+            return;
+        }
+        endGame(roomID);
     })
     socket.on('submit-question', (id, question) => {
         roomID = roomByPlayer[id];
@@ -245,13 +533,11 @@ io.on('connection', (socket) => {
         }
         else{
             gameState.questions[id] = question;
+            //If all players have submitted a question
             if(Object.keys(gameState.questions).length == playersByRoom[roomID].length){
-                io.to(roomID).emit('answer-phase', gameState.questions);
-                gameState.state = 'ANSWERING';
-                gameState.answers = {};
+                enterAnswerPhase(roomID);
             }
         }
-        //TODO: Add timeout
     })
     socket.on('submit-answers', (id, answers) => {
         roomID = roomByPlayer[id];
@@ -266,44 +552,8 @@ io.on('connection', (socket) => {
         //When all players have submitted answers, move on to the next
         //phase
         //TODO: Add timeout
-        //TODO: Prevent players from submitting data for a phase the room is not in
         if(Object.keys(gameState.answers).length == playersByRoom[roomID].length){
-            //TODO: Add matching phase
-            //For each player we randomize the order the answers were given
-            gameState.state = 'MATCHING';
-            gameState.matches = {};
-            gameState.expectedMatchOrder = {}
-            players = playersByRoom[roomID];
-             
-            players.forEach(player => {
-                names = [];
-                answers = [];
-                question = gameState.questions[player];
-                expectedOrder = [];
-                for(i=0; i<players.length; i++){
-                    if(players[i] != player){
-                        expectedOrder.push(i);
-                        currentPlayer = players[i];
-                        previousAnswers = gameState.answers[currentPlayer];
-                        for(key in previousAnswers){
-                            if(key == player){
-                                answers.push(previousAnswers[key]);
-                            }
-                        }
-                    }
-                }
-                //When a player submits their matches, it is in the form of an array of indices. The names
-                //are sent to the client in the order the answers are to be matched. For instance, if the 
-                //expectedOrder array is [0,3,1,4], then the names sent to the client are [player0, player3, player1, player4]
-                //Only the player's own name is not sent. When checking if the matches are correct, the player's own index
-                //in the playersByRoom array is skipped over. So if the submitting player is player3, the array they would send
-                //is [0,1,4],
-                gameState.expectedMatchOrder[player] = expectedOrder.sort(() => Math.random() - 0.5);
-                gameState.expectedMatchOrder[player].forEach(index => {
-                    names.push(nameByPlayer[players[index]]);
-                })
-                socketByPlayer[player].emit('matching-phase', names, question, answers);
-            })
+            enterMatchPhase(roomID);
         }
     })
     socket.on('submit-matches', (id, matches) => {
@@ -316,30 +566,7 @@ io.on('connection', (socket) => {
 
         gameState.matches[id] = matches;
         if(Object.keys(gameState.matches).length == playersByRoom[roomID].length){
-            gameState.state = 'RESULTS';
-            scores = [];
-            //Check score of player
-            players = playersByRoom[roomID];
-            names = [];
-            players.forEach(player => {
-                
-                expectedOrder = gameState.expectedMatchOrder[player];
-                actualOrder = gameState.matches[player];
-                score = 0;
-                playerIndex = players.indexOf(player);
-                for(i=0; i<expectedOrder.length; i++){
-                    expected = expectedOrder[i];
-                    if(expected >= playerIndex){
-                        expected -= 1;
-                    }
-                    if(expected == actualOrder[i]){
-                        score += 1;
-                    }
-                }
-                names.push(nameByPlayer[player]);
-                scores.push(score);
-            })
-            io.to(roomID).emit('results-phase', names, scores);
+            enterResultsPhase(roomID);
         }
     })
 });
