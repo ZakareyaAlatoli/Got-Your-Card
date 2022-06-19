@@ -60,7 +60,6 @@ const maxPlayers = 10;
 
 //HELPER FUNCTIONS
 function removePlayer(id){
-    console.log(`${id} has been removed`);
     index = disconnectedPlayers.indexOf(id);
     disconnectedPlayers.splice(index, 1);
     delete timeouts[id];
@@ -106,13 +105,13 @@ function enterRoom(id, roomID){
 function endGame(roomID){
     gameState = roomGameState[roomID];
     if(!gameState){
-        console.error(`${roomID} is not a valid roomID`);
         return;
     }
 
     if(gameState.state != 'LOBBY' && gameState.state != 'RESULTS'){
         delete gameState.questions;
         delete gameState.answers;
+        delete gameState.answersByQuestioner;
         delete gameState.matches;
         delete gameState.expectedMatchOrder;
         clearTimeout(gameState.timer);
@@ -124,7 +123,6 @@ function endGame(roomID){
             //if they don't reconnect
             //TODO: Make sure players who reconnect stay in their room
             if(disconnectedPlayers.includes(player)){
-                console.log(`${player} will be removed if they don't reconnect in 10 seconds`);
                 timeouts[player] = setTimeout(removePlayer, 10000, player);
                 io.to(roomID).emit('heartbeat');
             }
@@ -133,7 +131,6 @@ function endGame(roomID){
         io.to(roomID).emit('enter-lobby');
         return;
     }
-    console.error(`Room ${roomID} does not have a game in progress`)
 }
 function closeRoom(roomID){
     delete roomGameState[roomID];
@@ -172,6 +169,7 @@ function enterAnswerPhase(roomID){
     gameState.state = 'ANSWERING';
 
     gameState.answers = {};
+    gameState.answersByQuestioner = {};
     clearTimeout(gameState.timer);
 
     gameState.timer = setTimeout(() => {
@@ -183,8 +181,16 @@ function enterAnswerPhase(roomID){
                     if(answerer != questioner){
                         //Generate them placeholder answers
                         gameState.answers[answerer][questioner] = 'NO ANSWER GIVEN';
+                        if(!gameState.answersByQuestioner[questioner]){
+                            gameState.answersByQuestioner[questioner] = {};
+                            gameState.answersByQuestioner[questioner][answerer] = 'NO ANSWER GIVEN';
+                        }
+                        else{
+                            gameState.answersByQuestioner[questioner][answerer] = 'NO ANSWER GIVEN';
+                        }
                     }
                 })
+                
             }
             //Else if a player HAS submitted answers...
             else{
@@ -193,6 +199,13 @@ function enterAnswerPhase(roomID){
                         //but an answer was not given to a particular question...
                         if(!gameState.answers[answerer][questioner]){
                             gameState.answers[answerer][questioner] = 'NO ANSWER GIVEN';
+                            if(!gameState.answersByQuestioner[questioner]){
+                                gameState.answersByQuestioner[questioner] = {};
+                                gameState.answersByQuestioner[questioner][answerer] = 'NO ANSWER GIVEN';
+                            }
+                            else{
+                                gameState.answersByQuestioner[questioner][answerer] = 'NO ANSWER GIVEN';
+                            }
                         }
                     }
                 })
@@ -226,16 +239,16 @@ function enterMatchPhase(roomID){
         answers = [];
         question = gameState.questions[player];
         expectedOrder = [];
+        receivedAnswers = gameState.answersByQuestioner[player];
+
+        for(answerer in receivedAnswers){
+            answers.push(receivedAnswers[answerer]);
+        }
+
         for(i=0; i<players.length; i++){
             if(players[i] != player){
                 expectedOrder.push(i);
                 currentPlayer = players[i];
-                previousAnswers = gameState.answers[currentPlayer];
-                for(key in previousAnswers){
-                    if(key == player){
-                        answers.push(previousAnswers[key]);
-                    }
-                }
             }
         }
         //When a player submits their matches, it is in the form of an array of indices. The names
@@ -258,19 +271,27 @@ function enterResultsPhase(roomID){
 
     clearTimeout(gameState.timer);
 
-    scores = [];
-    //Check score of player
-    players = playersByRoom[roomID];
-    names = [];
+    results = [];
     players.forEach(player => {
         //The game has ended, so disconnected players will be removed
         //if they don't reconnect
         //TODO: Make sure players who reconnect stay in their room
         if(disconnectedPlayers.includes(player)){
-            console.log(`${player} will be removed if they don't reconnect in 10 seconds`);
             timeouts[player] = setTimeout(removePlayer, 10000, player);
             io.to(roomID).emit('heartbeat');
         }
+        result = {};
+        result.name = nameByPlayer[player];
+        result.question = gameState.questions[player];
+        receivedAnswers = gameState.answersByQuestioner[player];
+        result.answers = [];
+        for(answerer in receivedAnswers){
+            result.answers.push({
+                name: nameByPlayer[answerer],
+                answer: receivedAnswers[answerer]
+            });
+        }
+        //Calculate score
         expectedOrder = gameState.expectedMatchOrder[player];
         actualOrder = gameState.matches[player];
         score = 0;
@@ -284,11 +305,11 @@ function enterResultsPhase(roomID){
                 score += 1;
             }
         }
-        names.push(nameByPlayer[player]);
-        scores.push(score);
+        result.score = score;
+        results.push(result);
     })
 
-    io.to(roomID).emit('results-phase', names, scores);
+    io.to(roomID).emit('results-phase', results);
 }
 
 
@@ -341,7 +362,11 @@ io.on('connection', (socket) => {
                 socket.emit('enter-lobby');
             }
             else if(state == 'QUESTIONING'){
-                socket.emit('game-start');
+                question = "";
+                if(gameState.questions[id]){
+                    question = gameState.questions[id];
+                }
+                socket.emit('game-start', question);
             }
             else if(state == 'ANSWERING'){
                 socket.emit('answer-phase', gameState.questions);
@@ -366,10 +391,21 @@ io.on('connection', (socket) => {
                 })
                 socket.emit('matching-phase', names, question, answers);
             }
-            else if(state == 'RESULTS'){
-                names = [];
-                scores = [];
+            else if(state == 'RESULTS'){    
+                results = [];
                 players.forEach(player => {
+                    result = {};
+                    result.name = nameByPlayer[player];
+                    result.question = gameState.questions[player];
+                    receivedAnswers = gameState.answersByQuestioner[player];
+                    result.answers = [];
+                    for(answerer in receivedAnswers){
+                        result.answers.push({
+                            name: nameByPlayer[answerer],
+                            answer: receivedAnswers[answerer]
+                        });
+                    }
+                    //Calculate score
                     expectedOrder = gameState.expectedMatchOrder[player];
                     actualOrder = gameState.matches[player];
                     score = 0;
@@ -383,10 +419,10 @@ io.on('connection', (socket) => {
                             score += 1;
                         }
                     }
-                    names.push(nameByPlayer[player]);
-                    scores.push(score);
+                    result.score = score;
+                    results.push(result);
                 })
-                socket.emit('results-phase', names, scores);
+                socket.emit('results-phase', results);
             }
         }
     })
@@ -431,6 +467,11 @@ io.on('connection', (socket) => {
         }
         //TODO: Make roomIDs truly unique
         roomID = uuidv4().substring(0,6);
+        //This will loop to make sure no previously allocated roomID
+        //is used again
+        while(playersByRoom[roomID]){
+            roomID = uuidv4().substring(0,6);
+        }
         playersByRoom[roomID] = [id];
         roomGameState[roomID] = {
             state: 'LOBBY'
@@ -499,6 +540,7 @@ io.on('connection', (socket) => {
         //Reset game state if we are starting over
         delete gameState.questions;
         delete gameState.answers;
+        delete gameState.answersByQuestioner;
         delete gameState.matches;
         delete gameState.expectedMatchOrder;
         delete gameState.timer;
@@ -528,15 +570,15 @@ io.on('connection', (socket) => {
             socket.emit('error', 'You are not in the question phase');
             return;
         }
-        if(gameState.questions[id]){
-            socket.emit('error', 'You\'ve already submitted a question');
+
+        gameState.questions[id] = question;
+        remainingPlayers = playersByRoom[roomID].length - Object.keys(gameState.questions).length;
+        //If all players have submitted a question
+        if(remainingPlayers == 0){
+            enterAnswerPhase(roomID);
         }
         else{
-            gameState.questions[id] = question;
-            //If all players have submitted a question
-            if(Object.keys(gameState.questions).length == playersByRoom[roomID].length){
-                enterAnswerPhase(roomID);
-            }
+            socket.emit('game-message', `Waiting for ${remainingPlayers} player(s)`);
         }
     })
     socket.on('submit-answers', (id, answers) => {
@@ -549,11 +591,25 @@ io.on('connection', (socket) => {
         //We can allow players to submit answers multiple times
         //but their previous answers are overwritten
         gameState.answers[id] = answers;
+        for(questioner in answers){
+            answer = answers[questioner];
+            if(!gameState.answersByQuestioner[questioner]){
+                gameState.answersByQuestioner[questioner] = {};
+                gameState.answersByQuestioner[questioner][id] = answer;
+            }
+            else{
+                gameState.answersByQuestioner[questioner][id] = answer;
+            }
+        }   
         //When all players have submitted answers, move on to the next
         //phase
-        //TODO: Add timeout
-        if(Object.keys(gameState.answers).length == playersByRoom[roomID].length){
+        remainingPlayers = playersByRoom[roomID].length - Object.keys(gameState.answers).length;
+        //If all players have submitted a question
+        if(remainingPlayers == 0){
             enterMatchPhase(roomID);
+        }
+        else{
+            socket.emit('game-message', `Waiting for ${remainingPlayers} player(s)`);
         }
     })
     socket.on('submit-matches', (id, matches) => {
@@ -565,8 +621,13 @@ io.on('connection', (socket) => {
         }
 
         gameState.matches[id] = matches;
-        if(Object.keys(gameState.matches).length == playersByRoom[roomID].length){
+        remainingPlayers = playersByRoom[roomID].length - Object.keys(gameState.matches).length;
+        //If all players have submitted a question
+        if(remainingPlayers == 0){
             enterResultsPhase(roomID);
+        }
+        else{
+            socket.emit('game-message', `Waiting for ${remainingPlayers} player(s)`);
         }
     })
 });

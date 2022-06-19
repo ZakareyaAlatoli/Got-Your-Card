@@ -6,6 +6,8 @@
     <body>
         <b id="error-message" style="color:red;"></b>
         <br>
+        <b id="game-message" style="color:green;"></b>
+        <br>
         <b id="name">USERNAME</b>
         <!--Every submenu/screen is separated into divs for now
         TODO: Make them separate pages?-->
@@ -49,6 +51,9 @@
                     whould answer predictably
                     <input id="input-question"/>
                 </label>
+                <br>
+                Your question: <b id="pending-question"></b>
+                <br>
                 <button id="submit-question-btn">Submit</button>
             </form>
             <br>
@@ -94,6 +99,10 @@
             <ul id="score-list">
 
             </ul>
+            <br>
+            <div id="all-questions-list">
+
+            </div>
             <button onclick="startGame()">Play Again</button>
             <button onclick="leaveGame()">Leave</button>
         </div>
@@ -107,6 +116,7 @@
             const id = getCookie('gycID');
 
             var errorMessage = document.getElementById('error-message');
+            var gameMessage = document.getElementById('game-message');
 
             var nameForm = document.getElementById('name-form');
             var nameInput = document.getElementById('input-name');
@@ -134,9 +144,11 @@
             var questionInput = document.getElementById('input-question');
             //When the user submits text in the form, that message is
             //emitted to the server
+            const pendingQuestion = document.getElementById('pending-question');
             questionForm.addEventListener('submit', function(e) {
                 e.preventDefault();
                 if (questionInput.value) {
+                    pendingQuestion.textContent = questionInput.value;
                     socket.emit('submit-question', id, questionInput.value);
                 }
             });
@@ -198,13 +210,32 @@
                     errorMessage.textContent = "";
                 }, 5000);
             })
-            socket.on('game-start', () => {
+            let messageTimer;
+            socket.on('game-message', (msg) => {
+                gameMessage.textContent = msg;
+                window.clearTimeout(messageTimer);
+                messageTimer = window.setTimeout(() => {
+                    gameMessage.textContent = "";
+                }, 5000);
+            })
+            //Game state
+            var answers = {};
+            var matches = [];
+            var selectedAnswer;
+            socket.on('game-start', (question) => {
                 currentMenu.style.display = "none";
                 questionMenu.style.display = "block";
+                pendingQuestion.textContent = question;
+                
                 currentMenu = questionMenu;
+
+                //Reset previous state if playing again
+                answers = {};
+                matches = [];
+                selectedAnswer = null;
             })
             const questionList = document.getElementById('question-list');
-            var answers = {};
+            
             socket.on('answer-phase', (questions) => {
                 currentMenu.style.display = "none";
                 answerMenu.style.display = "block";
@@ -220,6 +251,7 @@
                         prompt.textContent = questions[key];
                         var input = document.createElement('input');
                         input.setAttribute('type','text');
+                        answers[key] = 'NO ANSWER GIVEN';
                         input.addEventListener('input', (e) => {
                             answers[key] = e.target.value;
                         })
@@ -230,11 +262,11 @@
                     }
                 });
             })
-            var matches = [];
+            
             const questionDisplay = document.getElementById('question-display');
             const answerList = document.getElementById('answer-list');
             const nameList = document.getElementById('name-list');
-            var selectedAnswer;
+            
             socket.on('matching-phase', (names, question, answers) => {
                 currentMenu.style.display = "none";
                 matchMenu.style.display = "block";
@@ -326,30 +358,32 @@
             })
             const winnerDisplay = document.getElementById('winner-display');
             const scoreList = document.getElementById('score-list');
-            socket.on('results-phase', (names, scores) => {
+            const allQuestionsList = document.getElementById('all-questions-list');
+            socket.on('results-phase', (results) => {
                 currentMenu.style.display = "none";
                 resultsMenu.style.display = "block";
                 currentMenu = resultsMenu;
                 scoreList.innerHTML = "";
+                allQuestionsList.innerHTML = "";
 
-                var maxScore = scores[0];
+                var maxScore = results[0].score;
                 var tied = false;
-                var winner = names[0];
+                var winner = results[0].name;
 
                 var listItem = document.createElement('li');
-                listItem.textContent = `${names[0]}: ${scores[0]}`;
+                listItem.textContent = `${results[0].name}: ${results[0].score}`;
                 scoreList.appendChild(listItem);
-                for(i=1; i<names.length; i++){
-                    if(scores[i] > maxScore){
+                for(i=1; i<results.length; i++){
+                    if(results[i].score > maxScore){
                         tied = false;
-                        maxScore = scores[i];
-                        winner = names[i];
+                        maxScore = results[i].score;
+                        winner = results[i].name;
                     }
-                    else if(scores[i] == maxScore){
+                    else if(results[i].score == maxScore){
                         tied = true;
                     }
                     listItem = document.createElement('li');
-                    listItem.textContent = `${names[i]}: ${scores[i]}`;
+                    listItem.textContent = `${results[i].name}: ${results[i].score}`;
                     scoreList.appendChild(listItem);
                 }
                 if(!tied){
@@ -358,6 +392,20 @@
                 else{
                     winnerDisplay.textContent = "TIE GAME";
                 }
+                results.forEach(result => {
+                    var questionItem = document.createElement('div');
+                    questionItem.textContent = `${result.name} asked "${result.question}"`;
+                    allQuestionsList.appendChild(questionItem);
+
+                    var allAnswersList = document.createElement('ul');
+                    questionItem.appendChild(allAnswersList);
+
+                    result.answers.forEach(answerer => {
+                        var answerItem = document.createElement('li');
+                        answerItem.textContent = `${answerer.name} said: "${answerer.answer}"`;
+                        allAnswersList.appendChild(answerItem);
+                    })
+                })
             })
             socket.on('heartbeat', () => {
                 socket.emit('heartbeat', id);
