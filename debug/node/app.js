@@ -57,8 +57,11 @@ var roomGameState = {}
 
 //GLOBAL CONSTANTS
 const maxPlayers = 10;
+const roundTimer = 120000; //2 minutes
 
 //HELPER FUNCTIONS
+
+//Clears all remnants of a player from the server
 function removePlayer(id){
     index = disconnectedPlayers.indexOf(id);
     disconnectedPlayers.splice(index, 1);
@@ -91,39 +94,41 @@ function leaveRoom(id, roomID){
     delete roomByPlayer[id];
     index = playersByRoom[roomID].indexOf(id);
     playersByRoom[roomID].splice(index,1);
+    //If the room becomes empty after a player leaves
+    //then the room is deleted
     if(playersByRoom[roomID].length <= 0){
         delete playersByRoom[roomID];
         return;
     }
+    //roomChange is fired every time someone leaves or joins
     roomChange(roomID);
 }
+//Adds a player to a room
 function enterRoom(id, roomID){
     roomByPlayer[id] = roomID;
     playersByRoom[roomID].push(id);
     roomChange(roomID);
 }
+//Called when a game is ended prematurely
 function endGame(roomID){
     gameState = roomGameState[roomID];
+    //If
     if(!gameState){
         return;
     }
-
+    //If the room is not in the lobby or results screen, then they
+    //are in a game
     if(gameState.state != 'LOBBY' && gameState.state != 'RESULTS'){
-        delete gameState.questions;
-        delete gameState.answers;
-        delete gameState.answersByQuestioner;
-        delete gameState.matches;
-        delete gameState.expectedMatchOrder;
-        clearTimeout(gameState.timer);
-        delete gameState.timer;
+        deleteGameState(gameState);
 
         players = playersByRoom[roomID];
         players.forEach(player => {
             //The game has ended, so disconnected players will be removed
             //if they don't reconnect
-            //TODO: Make sure players who reconnect stay in their room
             if(disconnectedPlayers.includes(player)){
                 timeouts[player] = setTimeout(removePlayer, 10000, player);
+                //When the client receives this message, they will
+                //reply with a heartbeat to prove they are still connected
                 io.to(roomID).emit('heartbeat');
             }
         });
@@ -132,6 +137,17 @@ function endGame(roomID){
         return;
     }
 }
+//Resets all the data about a game going on in a room
+function deleteGameState(gameState){
+    delete gameState.questions;
+    delete gameState.answers;
+    delete gameState.answersByQuestioner;
+    delete gameState.matches;
+    delete gameState.expectedMatchOrder;
+    clearTimeout(gameState.timer);
+    delete gameState.timer;
+}
+//Called when a room is being emptied for any reason
 function closeRoom(roomID){
     delete roomGameState[roomID];
     players = playersByRoom[roomID];
@@ -141,7 +157,9 @@ function closeRoom(roomID){
         })
     }
 }
-//Phase controls
+
+
+//PHASE CONTROLS
 function enterQuestionPhase(roomID){
     players = playersByRoom[roomID];
     gameState = roomGameState[roomID];
@@ -159,7 +177,7 @@ function enterQuestionPhase(roomID){
             }
         });
         enterAnswerPhase(roomID);
-    }, 60000);
+    }, roundTimer);
 
     io.to(roomID).emit('game-start');
 }
@@ -171,7 +189,8 @@ function enterAnswerPhase(roomID){
     gameState.answers = {};
     gameState.answersByQuestioner = {};
     clearTimeout(gameState.timer);
-
+    //If players take too long, they will have their answers
+    //filled in for them
     gameState.timer = setTimeout(() => {
         players.forEach(answerer => {
             //If a player hasn't submitted answers...
@@ -212,7 +231,7 @@ function enterAnswerPhase(roomID){
             }
         })
         enterMatchPhase(roomID);
-    }, 60000);
+    }, roundTimer);
 
     io.to(roomID).emit('answer-phase', gameState.questions);
 }
@@ -220,12 +239,16 @@ function enterMatchPhase(roomID){
     players = playersByRoom[roomID];
     gameState = roomGameState[roomID];
     gameState.state = 'MATCHING';
-    //For each player we randomize the order the answers were given
-    
+    //These will map a player's ID to an array
+    //The array contains the indices of the players in the
+    //room they are in. Every time an element is the same
+    //as in the expected order array, the player gets a point
     gameState.matches = {};
+    //This maps a player's ID to the array they have to match
     gameState.expectedMatchOrder = {}
     clearTimeout(gameState.timer);
-    
+    //If players take too long, they will have their answers
+    //filled in for them
     gameState.timer = setTimeout(() => {
         players.forEach(player => {
             if(!gameState.matches[player]){
@@ -233,21 +256,14 @@ function enterMatchPhase(roomID){
             }
         })
         enterResultsPhase(roomID);
-    }, 60000);
+    }, roundTimer);
     players.forEach(player => {
-        names = [];
-        answers = [];
-        question = gameState.questions[player];
-        expectedOrder = [];
-        receivedAnswers = gameState.answersByQuestioner[player];
+        unrandomizedOrder = [];
 
-        for(answerer in receivedAnswers){
-            answers.push(receivedAnswers[answerer]);
-        }
-
+        //For each player we randomize the order the answers were given
         for(i=0; i<players.length; i++){
             if(players[i] != player){
-                expectedOrder.push(i);
+                unrandomizedOrder.push(i);
                 currentPlayer = players[i];
             }
         }
@@ -257,11 +273,9 @@ function enterMatchPhase(roomID){
         //Only the player's own name is not sent. When checking if the matches are correct, the player's own index
         //in the playersByRoom array is skipped over. So if the submitting player is player3, the array they would send
         //is [0,1,4],
-        gameState.expectedMatchOrder[player] = expectedOrder.sort(() => Math.random() - 0.5);
-        gameState.expectedMatchOrder[player].forEach(index => {
-            names.push(nameByPlayer[players[index]]);
-        })
-        socketByPlayer[player].emit('matching-phase', names, question, answers);
+        gameState.expectedMatchOrder[player] = unrandomizedOrder.sort(() => Math.random() - 0.5);
+        matchData = getMatchData(player);
+        socketByPlayer[player].emit('matching-phase', matchData);
     })
 }
 function enterResultsPhase(roomID){ 
@@ -271,7 +285,7 @@ function enterResultsPhase(roomID){
 
     clearTimeout(gameState.timer);
 
-    results = [];
+    results = getResults(roomID);
     players.forEach(player => {
         //The game has ended, so disconnected players will be removed
         //if they don't reconnect
@@ -280,6 +294,43 @@ function enterResultsPhase(roomID){
             timeouts[player] = setTimeout(removePlayer, 10000, player);
             io.to(roomID).emit('heartbeat');
         }
+    })
+
+    io.to(roomID).emit('results-phase', results);
+}
+//The following functions are used to get all relevant
+//data for a given phase of the game
+function getMatchData(id){
+    matchData = {};
+
+    roomID = roomByPlayer[id];
+    if(!roomID){
+        return;
+    }
+    gameState = roomGameState[roomID];
+    players = playersByRoom[roomID];
+    names = [];
+    order = gameState.expectedMatchOrder[id];
+    order.forEach(index => {
+        playerID = players[index];
+        names.push(nameByPlayer[playerID]);
+    })
+    matchData.names = names;
+    receivedAnswers = gameState.answersByQuestioner[id];
+    answers = [];
+    for(answerer in receivedAnswers){
+        answers.push(receivedAnswers[answerer]);
+    }
+    matchData.answers = answers;
+    matchData.question = gameState.questions[id];
+    return matchData;
+}
+function getResults(roomID){
+    players = playersByRoom[roomID];
+    gameState = roomGameState[roomID];
+
+    results = [];
+    players.forEach(player => {
         result = {};
         result.name = nameByPlayer[player];
         result.question = gameState.questions[player];
@@ -308,8 +359,7 @@ function enterResultsPhase(roomID){
         result.score = score;
         results.push(result);
     })
-
-    io.to(roomID).emit('results-phase', results);
+    return results;
 }
 
 
@@ -372,56 +422,11 @@ io.on('connection', (socket) => {
                 socket.emit('answer-phase', gameState.questions);
             }
             else if(state == 'MATCHING'){
-                names = [];
-                order = gameState.expectedMatchOrder[id];
-                order.forEach(i => {
-                    names.push(nameByPlayer[players[i]]);
-                })
-                question = gameState.questions[id];
-                answers = [];
-                players.forEach(player => {
-                    if(player != id){
-                        previousAnswers = gameState.answers[player];
-                        for(questioner in previousAnswers){
-                            if(questioner == id){
-                                answers.push(previousAnswers[questioner]);
-                            }
-                        }
-                    }
-                })
-                socket.emit('matching-phase', names, question, answers);
+                matchData = getMatchData(id);
+                socket.emit('matching-phase', matchData);
             }
             else if(state == 'RESULTS'){    
-                results = [];
-                players.forEach(player => {
-                    result = {};
-                    result.name = nameByPlayer[player];
-                    result.question = gameState.questions[player];
-                    receivedAnswers = gameState.answersByQuestioner[player];
-                    result.answers = [];
-                    for(answerer in receivedAnswers){
-                        result.answers.push({
-                            name: nameByPlayer[answerer],
-                            answer: receivedAnswers[answerer]
-                        });
-                    }
-                    //Calculate score
-                    expectedOrder = gameState.expectedMatchOrder[player];
-                    actualOrder = gameState.matches[player];
-                    score = 0;
-                    playerIndex = players.indexOf(player);
-                    for(i=0; i<expectedOrder.length; i++){
-                        expected = expectedOrder[i];
-                        if(expected >= playerIndex){
-                            expected -= 1;
-                        }
-                        if(expected == actualOrder[i]){
-                            score += 1;
-                        }
-                    }
-                    result.score = score;
-                    results.push(result);
-                })
+                results = getResults(roomID);
                 socket.emit('results-phase', results);
             }
         }
@@ -538,12 +543,7 @@ io.on('connection', (socket) => {
             }
         })
         //Reset game state if we are starting over
-        delete gameState.questions;
-        delete gameState.answers;
-        delete gameState.answersByQuestioner;
-        delete gameState.matches;
-        delete gameState.expectedMatchOrder;
-        delete gameState.timer;
+        deleteGameState(gameState);
         enterQuestionPhase(roomID);
     })
     socket.on('end-game', (id) => {

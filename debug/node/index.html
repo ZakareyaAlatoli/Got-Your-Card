@@ -19,6 +19,7 @@
                 <button id="submit-name-btn">Submit</button>
             </form>
         </div>
+        <!--CREATE/JOIN GAME MENU-->
         <div id="navigation-menu" style="display:none">
             <button onclick="changeName()">Change Name</button>
             <br>
@@ -30,6 +31,7 @@
                 <button id="submit-roomid-btn">Join</button>
             </form>
         </div>
+        <!--LOBBY-->
         <div id="lobby" style="display:none">
             Room Code:
             <b id="room-code"></b>
@@ -45,6 +47,7 @@
             </ol>
             <button onclick="leaveGame()">Leave Room</button>
         </div>
+        <!--QUESTION MENU-->
         <div id="question-menu" style="display:none">
             <form id="question-form" action="">
                 <label>Ask a question that you think the other players
@@ -62,6 +65,7 @@
             <br>
             <button onclick="endGame()">End Game</button>
         </div>
+        <!--ANSWER MENU-->
         <div id="answer-menu" style="display:none;">
             Answer the questions the other players asked
             <ul id="question-list">
@@ -72,6 +76,7 @@
             <br>
             <button onclick="endGame()">End Game</button>
         </div>
+        <!--MATCHING MENU-->
         <div id="match-menu" style="display:none;">
             <div>
                 You asked:
@@ -91,6 +96,7 @@
             <br>
             <button onclick="endGame()">End Game</button>
         </div>
+        <!--RESULTS MENU-->
         <div id="results-menu" style="display: none;">
             <div>
                 Winner: 
@@ -222,6 +228,7 @@
             var answers = {};
             var matches = [];
             var selectedAnswer;
+
             socket.on('game-start', (question) => {
                 currentMenu.style.display = "none";
                 questionMenu.style.display = "block";
@@ -251,6 +258,8 @@
                         prompt.textContent = questions[key];
                         var input = document.createElement('input');
                         input.setAttribute('type','text');
+                        //If the player submits their answers prematurely
+                        //then we fill in a dummy answer
                         answers[key] = 'NO ANSWER GIVEN';
                         input.addEventListener('input', (e) => {
                             answers[key] = e.target.value;
@@ -267,20 +276,20 @@
             const answerList = document.getElementById('answer-list');
             const nameList = document.getElementById('name-list');
             
-            socket.on('matching-phase', (names, question, answers) => {
+            socket.on('matching-phase', (matchData) => {
                 currentMenu.style.display = "none";
                 matchMenu.style.display = "block";
                 currentMenu = matchMenu;
 
-                questionDisplay.textContent = question;
+                questionDisplay.textContent = matchData.question;
                 answerList.innerHTML = "";
                 nameList.innerHTML = "";
 
-                for(i=0; i<answers.length; i++){
+                for(i=0; i<matchData.answers.length; i++){
                     var answerItem = document.createElement('button');
                     answerItem.classList.add('answer');
                     answerItem.id = `${i}`;
-                    answerItem.textContent = answers[i];
+                    answerItem.textContent = matchData.answers[i];
                     answerItem.addEventListener('click', (e) => {
                         e.stopPropagation();
                         //If an answer is selected...
@@ -316,7 +325,7 @@
                     nameList.appendChild(nameItem);
 
                     var nameLabelItem = document.createElement('span');
-                    nameLabelItem.textContent = names[i];
+                    nameLabelItem.textContent = matchData.names[i];
                     nameItem.appendChild(nameLabelItem);
 
                     var dropItem = document.createElement('span');
