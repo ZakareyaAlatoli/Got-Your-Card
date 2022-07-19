@@ -17,6 +17,8 @@ const cookieParser = require('cookie-parser');
 const {v4 : uuidv4 } = require('uuid');
 //Used to fetch the user ID so we don't have to rely on socket.id
 app.use(cookieParser());
+//Used to serve static files like stylesheets
+app.use(express.static(__dirname + '/public'))
 
 //when a GET http request is sent to root of the website, return an html page
 app.get('/', (req, res) => {
