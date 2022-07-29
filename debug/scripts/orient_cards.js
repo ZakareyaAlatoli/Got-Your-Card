@@ -7,13 +7,11 @@ for(i=0; i<cards.length; i++) {
         const card = e.target;
         if(card.classList.contains('selected')){
             card.classList.remove('selected');
-            console.log(`Unselected ${card}`);
             resetHand();
         }
         else{
             resetHand();
             card.classList.add('selected');
-            console.log(`Selected ${card}`);
             card.style.transform = "translate(225px, 25px) rotate(0deg) scale(1.25,1.25)";
         }
     }, true);

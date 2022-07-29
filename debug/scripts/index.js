@@ -1,1 +1,0 @@
-location = "main_menu.html";

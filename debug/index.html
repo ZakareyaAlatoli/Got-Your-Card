@@ -5,11 +5,10 @@
         <link rel="stylesheet" href="css/main.css">
     </head>
     <body>
+        <!--TODO: Display these in a prettier way-->
+        <b id="error-message" style="color:red; position:fixed; top:5vh; left: 10vw; background-color: white;"></b>
+        <b id="game-message" style="color:green; position:fixed; top:10vh; left: 10vw; background-color: white;"></b>
         <h1>Got Your Card</h1>
-        <b id="error-message" style="color:red;"></b>
-        <br>
-        <b id="game-message" style="color:green;"></b>
-        <br>
         <b id="name"></b>
         <!--Every submenu/screen is separated into divs for now
         TODO: Make them separate pages?-->
@@ -59,7 +58,7 @@
         <div id="question-menu" style="display:none">
             <form id="question-form" action="">
                 <label>Ask a question that you think the other players
-                    whould answer predictably
+                    would answer differently
                     <input id="input-question"/>
                 </label>
                 <br>
@@ -124,6 +123,8 @@
         <script src="/socket.io/socket.io.js"></script>
         <script>
             //TODO: Prevent idling so cloud server doesn't auto-disconnect
+            //Does that still need to be done?
+
             //io() normally takes the URL to connect to as an argument. If none is
             //provided, it defaults to the host that serves this page
             var socket = io();
