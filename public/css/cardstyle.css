@@ -1,0 +1,45 @@
+.hand {
+    position: absolute;
+}
+
+.card {
+    width: 125px; 
+    text-align: center;
+    height: 200px; 
+    background: linear-gradient(to top, #222222 0%, #CCCCCC 100%); 
+    border-radius: 20px; 
+    position: absolute; 
+    border-style: ridge;
+    transition: transform 0.25s;
+}
+
+.selected { 
+    border-color: red;
+}
+
+.card-art {
+    width: 90%; 
+    height:56.25%; 
+    background: red; 
+    position: relative; 
+    left: 5%; 
+    margin-top: 5%; 
+    margin-bottom: 5%;
+    pointer-events: none;
+    border-style: double;
+    border-color: aquamarine;
+}
+
+.card-art img {
+    width: 100%;
+    height: 100%;
+}
+
+.card-text {
+    width: 90%; 
+    height:20%; 
+    background: green; 
+    position: relative; 
+    left: 5%;
+    pointer-events: none;
+}

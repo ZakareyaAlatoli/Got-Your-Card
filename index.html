@@ -1,54 +1,477 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Got Your Card</title>
-</head>
-<body>
-    <div id="main-menu">
-        <h1>MAIN MENU</h1>
-        <button id="create-game-btn">Create Game</button>
-        <button id="join-game-btn">Join Game</button>
-        <form id="name-form" action="">
-            <label>Name</label>
-            <input id="input-name">
-            <button>Submit</button>
-        </form>
-    </div>
+<html>
+    <head>
+        <title>Got Your Card</title>
+        <link rel="stylesheet" href="css/main.css">
+    </head>
+    <body>
+        <!--TODO: Display these in a prettier way-->
+        <b id="error-message" style="color:red; position:fixed; top:5vh; left: 10vw; background-color: white;"></b>
+        <b id="game-message" style="color:green; position:fixed; top:10vh; left: 10vw; background-color: white;"></b>
+        <h1>Got Your Card</h1>
+        <b id="name"></b>
+        <!--Every submenu/screen is separated into divs for now
+        TODO: Make them separate pages?-->
+        <div id="main-menu">
+            <p>This is a game where the player who knows their opponents best wins. 
+                Enter your name below to get into a match.
+            </p>
+            <h3>Cookies must be enabled to play!</h3>
+            <form id="name-form" action="">
+                <label>
+                    <input id="input-name"/>
+                </label>
+                <button id="submit-name-btn">Submit</button>
+            </form>
+        </div>
+        <!--CREATE/JOIN GAME MENU-->
+        <div id="navigation-menu" style="display:none">
+            <button onclick="changeName()">Change Name</button>
+            <br>
+            <button onclick="createGame()">Create Game</button>
+            <br>
+            Enter a room code to join an active lobby here:
+            <form id="join-room-form" action="">
+                <label>
+                    <input id="input-roomid"/>
+                </label>
+                <button id="submit-roomid-btn">Join</button>
+            </form>
+        </div>
+        <!--LOBBY-->
+        <div id="lobby" style="display:none">
+            Room Code:
+            <b id="room-code"></b>
+            <br>
+            <button onclick="startGame()">Start Game</button>
+            <h3>Current Players: 
+                <i id="player-count">
+                    
+                </i>
+            </h3>
+            <ol id="player-list">
 
-    <div id="lobby" style="display:none;">
-        <h1>LOBBY</h1>
-        <ol>
-            <li>TEST</li>
-        </ol>
-    </div>
-    <script>
-        var myID = 0;
-        var gameID = 0;
+            </ol>
+            <button onclick="leaveGame()">Leave Room</button>
+        </div>
+        <!--QUESTION MENU-->
+        <div id="question-menu" style="display:none">
+            <form id="question-form" action="">
+                <label>Ask a question that you think the other players
+                    would answer differently
+                    <input id="input-question"/>
+                </label>
+                <br>
+                Your question: <b id="pending-question"></b>
+                <br>
+                <button id="submit-question-btn">Submit</button>
+            </form>
+            <br>
+            <i>Other players are still writing questions...</i>
+            <br>
+            <br>
+            <button onclick="endGame()">End Game</button>
+        </div>
+        <!--ANSWER MENU-->
+        <div id="answer-menu" style="display:none;">
+            Answer the questions the other players asked
+            <ul id="question-list">
 
-        function createGame(){
-            return 0;
-        }
+            </ul>
+            <button onclick="submitAnswers()">Finished</button>
+            <br>
+            <br>
+            <button onclick="endGame()">End Game</button>
+        </div>
+        <!--MATCHING MENU-->
+        <div id="match-menu" style="display:none;">
+            <div>
+                You asked:
+                <i id="question-display">
+
+                </i>
+            </div>
+            <div id="answer-list">
+
+            </div>
+            <br>
+            <div id="name-list">
+
+            </div>
+            <button onclick="submitMatches()">Finish</button>
+            <br>
+            <br>
+            <button onclick="endGame()">End Game</button>
+        </div>
+        <!--RESULTS MENU-->
+        <div id="results-menu" style="display: none;">
+            <div>
+                Winner: 
+                <i id="winner-display">TIE GAME</i>
+            </div>
+            <ul id="score-list">
+
+            </ul>
+            <br>
+            <div id="all-questions-list">
+
+            </div>
+            <button onclick="startGame()">Play Again</button>
+            <button onclick="leaveGame()">Leave</button>
+        </div>
+        <!--This loads the clientside socket.io code-->
+        <script src="/socket.io/socket.io.js"></script>
+        <script>
+            //TODO: Prevent idling so cloud server doesn't auto-disconnect
+            //Does that still need to be done?
+
+            //io() normally takes the URL to connect to as an argument. If none is
+            //provided, it defaults to the host that serves this page
+            var socket = io();
+            const id = getCookie('gycID');
+
+            var errorMessage = document.getElementById('error-message');
+            var gameMessage = document.getElementById('game-message');
+
+            var nameForm = document.getElementById('name-form');
+            var nameInput = document.getElementById('input-name');
+            //When the user submits text in the form, that message is
+            //emitted to the server
+            nameForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                if (nameInput.value) {
+                    socket.emit('enter-name', id, nameInput.value);
+                }
+            });
+
+            var joinForm = document.getElementById('join-room-form');
+            var joinInput = document.getElementById('input-roomid');
+            //When the user submits text in the form, that message is
+            //emitted to the server
+            joinForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                if (joinInput.value) {
+                    socket.emit('join-room', id, joinInput.value);
+                }
+            });
+
+            var questionForm = document.getElementById('question-form');
+            var questionInput = document.getElementById('input-question');
+            //When the user submits text in the form, that message is
+            //emitted to the server
+            const pendingQuestion = document.getElementById('pending-question');
+            questionForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                if (questionInput.value) {
+                    pendingQuestion.textContent = questionInput.value;
+                    socket.emit('submit-question', id, questionInput.value);
+                }
+            });
+            //When a message is received from the server, it gets
+            //displayed in the webpage
+            var playerList = document.getElementById('player-list');
+            var room = document.getElementById('room-code');
+            var username = document.getElementById('name');
+            //Menus
+            const mainMenu = document.getElementById('main-menu');
+            const navMenu = document.getElementById('navigation-menu');
+            const lobbyMenu = document.getElementById('lobby');
+            const questionMenu = document.getElementById('question-menu');
+            const answerMenu = document.getElementById('answer-menu');
+            const matchMenu = document.getElementById('match-menu');
+            const resultsMenu = document.getElementById('results-menu');
+
+            var currentMenu = mainMenu;
+
+            //Socket events
+            socket.on('name-set', (n) => {
+                username.textContent = n; 
+                mainMenu.style.display = "none";
+                navMenu.style.display = "block";
+                currentMenu = navMenu;
+            });
+            const playerCount = document.getElementById('player-count');
+            //TODO: Fix items not showing up when reloading
+            socket.on('room-state', (roomID, players, names, maxPlayers) => {
+                //Populate player list
+                playerList.innerHTML = "";
+                playerCount.textContent = `(${players.length}\\${maxPlayers})`;
+                room.textContent = roomID;
+                names.forEach(n => {
+                    var item = document.createElement('li');
+                    item.textContent = n;
+                    playerList.appendChild(item);
+                });
+            });
+            socket.on('enter-lobby', () => {
+                currentMenu.style.display = "none";
+                lobbyMenu.style.display = "block";
+                currentMenu = lobbyMenu;
+            })
+            socket.on('left-room', () => {
+                navMenu.style.display = "block";
+                currentMenu = navMenu;
+                lobbyMenu.style.display = "none";
+                resultsMenu.style.display = "none";
+            });
+            socket.on('get-id', () => {
+                socket.emit('received-id', id);
+            })
+            let errorTimer;
+            socket.on('error', (msg) => {
+                errorMessage.textContent = msg;
+                window.clearTimeout(errorTimer);
+                errorTimer = window.setTimeout(() => {
+                    errorMessage.textContent = "";
+                }, 5000);
+            })
+            let messageTimer;
+            socket.on('game-message', (msg) => {
+                gameMessage.textContent = msg;
+                window.clearTimeout(messageTimer);
+                messageTimer = window.setTimeout(() => {
+                    gameMessage.textContent = "";
+                }, 5000);
+            })
+            //Game state
+            var answers = {};
+            var matches = [];
+            var selectedAnswer;
+
+            socket.on('game-start', (question) => {
+                currentMenu.style.display = "none";
+                questionMenu.style.display = "block";
+                pendingQuestion.textContent = question;
+                
+                currentMenu = questionMenu;
+
+                //Reset previous state if playing again
+                answers = {};
+                matches = [];
+                selectedAnswer = null;
+            })
+            const questionList = document.getElementById('question-list');
+            
+            socket.on('answer-phase', (questions) => {
+                currentMenu.style.display = "none";
+                answerMenu.style.display = "block";
+                currentMenu = answerMenu;
+                questionList.innerHTML = "";
+                //We iterate through these to make sure we don't
+                //display a player's own question
+                var keys = Object.keys(questions);
+                keys.forEach(key => {
+                    if(key != id){
+                        var item = document.createElement('li');
+                        var prompt = document.createElement('div');
+                        prompt.textContent = questions[key];
+                        var input = document.createElement('input');
+                        input.setAttribute('type','text');
+                        //If the player submits their answers prematurely
+                        //then we fill in a dummy answer
+                        answers[key] = 'NO ANSWER GIVEN';
+                        input.addEventListener('input', (e) => {
+                            answers[key] = e.target.value;
+                        })
+
+                        item.appendChild(prompt);
+                        item.appendChild(input);
+                        questionList.appendChild(item);
+                    }
+                });
+            })
+            
+            const questionDisplay = document.getElementById('question-display');
+            const answerList = document.getElementById('answer-list');
+            const nameList = document.getElementById('name-list');
+            
+            socket.on('matching-phase', (matchData) => {
+                currentMenu.style.display = "none";
+                matchMenu.style.display = "block";
+                currentMenu = matchMenu;
+
+                questionDisplay.textContent = matchData.question;
+                answerList.innerHTML = "";
+                nameList.innerHTML = "";
+
+                for(i=0; i<matchData.answers.length; i++){
+                    var answerItem = document.createElement('button');
+                    answerItem.classList.add('answer');
+                    answerItem.id = `${i}`;
+                    answerItem.textContent = matchData.answers[i];
+                    answerItem.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        //If an answer is selected...
+                        if(selectedAnswer){
+                            //and you click on a different one
+                            if(e.target != selectedAnswer){
+                                //switch their places
+                                selectedNewParent = e.target.parentElement;
+                                targetNewParent = selectedAnswer.parentElement;
+
+                                selectedNewParent.appendChild(selectedAnswer);
+                                if(selectedNewParent.classList.contains('drop')){
+                                    matches[selectedNewParent.id] = parseInt(selectedAnswer.id);
+                                }
+                                targetNewParent.appendChild(e.target);
+                                if(targetNewParent.classList.contains('drop')){
+                                    matches[targetNewParent.id] = parseInt(e.target.id);
+                                }
+
+                                clearSelection();
+                            }
+                            else{
+                                clearSelection();
+                            }
+                        }
+                        else{
+                            selectAnswer(e.target);
+                        }
+                    })
+                    answerList.appendChild(answerItem);
+
+                    var nameItem = document.createElement('div');
+                    nameList.appendChild(nameItem);
+
+                    var nameLabelItem = document.createElement('span');
+                    nameLabelItem.textContent = matchData.names[i];
+                    nameItem.appendChild(nameLabelItem);
+
+                    var dropItem = document.createElement('span');
+                    dropItem.classList.add('drop');
+                    dropItem.style.borderStyle = "solid";
+                    dropItem.id = `${i}`;
+                    dropItem.textContent = "DROP HERE";
+                    dropItem.addEventListener('click', (e) => {
+                        //If you selected an answer...
+                        if(selectedAnswer){
+                            //and the drop zone is occupied...
+                            if(e.target.childElementCount > 0){
+                                //switch them
+                                selectedNewParent = e.target;
+                                occupantAnswer = e.target.firstChild;
+
+                                occupantNewParent = selectedAnswer.parentElement;
+                                occupantNewParent.appendChild(occupantAnswer);
+                                matches[occupantNewParent.id] = parseInt(occupantAnswer.id);
+
+                                e.target.appendChild(selectedAnswer);
+                                matches[e.target.id] = parseInt(selectedAnswer.id);
+                                
+                                clearSelection();
+                            }
+                            //and the zone is NOT occupied...
+                            else{
+                                e.target.appendChild(selectedAnswer);
+                                matches[e.target.id] = parseInt(selectedAnswer.id);
+                                clearSelection();
+                            }
+                        }
+                    })
+                    nameItem.appendChild(dropItem);
 
 
-        names = {
-            0: 'PLACEHOLDER',
-            1: 'Melman',
-            2: 'Will Smith'
-        };
-        var nameform = document.getElementById('name-form');
-        var input = document.getElementById('input-name');
-        //When the user submits text in the form, that message is
-        //emitted to the server
-        nameform.addEventListener('submit', function(e) {
-            e.preventDefault();
-            if (input.value) {
-                names[myID] = input.value;
-                console.log(names);
+                    matches.push(-1);
+                }
+            })
+            const winnerDisplay = document.getElementById('winner-display');
+            const scoreList = document.getElementById('score-list');
+            const allQuestionsList = document.getElementById('all-questions-list');
+            socket.on('results-phase', (results) => {
+                currentMenu.style.display = "none";
+                resultsMenu.style.display = "block";
+                currentMenu = resultsMenu;
+                scoreList.innerHTML = "";
+                allQuestionsList.innerHTML = "";
+
+                var maxScore = results[0].score;
+                var tied = false;
+                var winner = results[0].name;
+
+                var listItem = document.createElement('li');
+                listItem.textContent = `${results[0].name}: ${results[0].score}`;
+                scoreList.appendChild(listItem);
+                for(i=1; i<results.length; i++){
+                    if(results[i].score > maxScore){
+                        tied = false;
+                        maxScore = results[i].score;
+                        winner = results[i].name;
+                    }
+                    else if(results[i].score == maxScore){
+                        tied = true;
+                    }
+                    listItem = document.createElement('li');
+                    listItem.textContent = `${results[i].name}: ${results[i].score}`;
+                    scoreList.appendChild(listItem);
+                }
+                if(!tied){
+                    winnerDisplay.textContent = winner;
+                }
+                else{
+                    winnerDisplay.textContent = "TIE GAME";
+                }
+                results.forEach(result => {
+                    var questionItem = document.createElement('div');
+                    questionItem.textContent = `${result.name} asked "${result.question}"`;
+                    allQuestionsList.appendChild(questionItem);
+
+                    var allAnswersList = document.createElement('ul');
+                    questionItem.appendChild(allAnswersList);
+
+                    result.answers.forEach(answerer => {
+                        var answerItem = document.createElement('li');
+                        answerItem.textContent = `${answerer.name} said: "${answerer.answer}"`;
+                        allAnswersList.appendChild(answerItem);
+                    })
+                })
+            })
+            socket.on('heartbeat', () => {
+                socket.emit('heartbeat', id);
+            })
+
+            //HELPER FUNCTIONS
+            function changeName(){
+                navMenu.style.display = "none";
+                mainMenu.style.display = "block";
             }
-        });
-    </script>
-</body>
+            function createGame(){
+                socket.emit('create-room', id);
+            }
+            function leaveGame(){
+                socket.emit('leave-room', id);
+            }
+            //TO DO: Start the game
+            function startGame(){
+                socket.emit('start-game', id);
+            }
+            function endGame(){
+                socket.emit('end-game', id);
+            }
+            function submitAnswers(){
+                socket.emit('submit-answers', id, answers);
+            }
+            function submitMatches(){
+                socket.emit('submit-matches', id, matches);
+            }
+            function clearSelection(){
+                selectedAnswer.style.color = "black";
+                selectedAnswer = null;
+            }
+            function selectAnswer(answer){
+                answer.style.color = "green";
+                selectedAnswer = answer;
+            }
+            //Grepper ftw
+            function getCookie(name) {
+                var nameEQ = name + "=";
+                var ca = document.cookie.split(';');
+                for(var i=0;i < ca.length;i++) {
+                    var c = ca[i];
+                    while (c.charAt(0)==' ') c = c.substring(1,c.length);
+                    if (c.indexOf(nameEQ) == 0) return c.substring(nameEQ.length,c.length);
+                }
+                return null;
+            }
+        </script>
+    </body>
 </html>
