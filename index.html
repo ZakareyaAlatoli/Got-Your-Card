@@ -285,20 +285,20 @@
             const answerList = document.getElementById('answer-list');
             const nameList = document.getElementById('name-list');
             
-            socket.on('matching-phase', (matchData) => {
+            socket.on('matching-phase', (names, question, answers) => {
                 currentMenu.style.display = "none";
                 matchMenu.style.display = "block";
                 currentMenu = matchMenu;
 
-                questionDisplay.textContent = matchData.question;
+                questionDisplay.textContent = question;
                 answerList.innerHTML = "";
                 nameList.innerHTML = "";
 
-                for(i=0; i<matchData.answers.length; i++){
+                for(i=0; i<answers.length; i++){
                     var answerItem = document.createElement('button');
                     answerItem.classList.add('answer');
                     answerItem.id = `${i}`;
-                    answerItem.textContent = matchData.answers[i];
+                    answerItem.textContent = answers[i];
                     answerItem.addEventListener('click', (e) => {
                         e.stopPropagation();
                         //If an answer is selected...
@@ -334,7 +334,7 @@
                     nameList.appendChild(nameItem);
 
                     var nameLabelItem = document.createElement('span');
-                    nameLabelItem.textContent = matchData.names[i];
+                    nameLabelItem.textContent = names[i];
                     nameItem.appendChild(nameLabelItem);
 
                     var dropItem = document.createElement('span');
@@ -369,8 +369,6 @@
                         }
                     })
                     nameItem.appendChild(dropItem);
-
-
                     matches.push(-1);
                 }
             })
