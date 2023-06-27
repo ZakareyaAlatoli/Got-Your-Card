@@ -143,6 +143,8 @@ function closeRoom(roomID){
         })
     }
 }
+
+const phaseDuration = 60000;
 //Phase controls
 function enterQuestionPhase(roomID){
     players = playersByRoom[roomID];
@@ -161,7 +163,7 @@ function enterQuestionPhase(roomID){
             }
         });
         enterAnswerPhase(roomID);
-    }, 60000);
+    }, phaseDuration);
 
     io.to(roomID).emit('game-start');
 }
@@ -214,7 +216,7 @@ function enterAnswerPhase(roomID){
             }
         })
         enterMatchPhase(roomID);
-    }, 60000);
+    }, phaseDuration);
 
     io.to(roomID).emit('answer-phase', gameState.questions);
 }
@@ -235,7 +237,7 @@ function enterMatchPhase(roomID){
             }
         })
         enterResultsPhase(roomID);
-    }, 60000);
+    }, phaseDuration);
     players.forEach(player => {
         names = [];
         answers = [];
