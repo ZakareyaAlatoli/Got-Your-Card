@@ -5,9 +5,42 @@
         <link rel="stylesheet" href="css/main.css">
     </head>
     <body>
+        <!--This loads the clientside socket.io code-->
+        <script src="/socket.io/socket.io.js"></script>
+        <script>
+            //TODO: Prevent idling so cloud server doesn't auto-disconnect
+            //Does that still need to be done?
+
+            //io() normally takes the URL to connect to as an argument. If none is
+            //provided, it defaults to the host that serves this page
+            var socket = io();
+            const id = getCookie('gycID');
+        </script>
         <!--TODO: Display these in a prettier way-->
         <b id="error-message" style="color:red; position:fixed; top:5vh; left: 10vw; background-color: white;"></b>
         <b id="game-message" style="color:green; position:fixed; top:10vh; left: 10vw; background-color: white;"></b>
+        <script>
+            var errorMessage = document.getElementById('error-message');
+            var gameMessage = document.getElementById('game-message');
+
+            let errorTimer;
+            socket.on('error', (msg) => {
+                errorMessage.textContent = msg;
+                window.clearTimeout(errorTimer);
+                errorTimer = window.setTimeout(() => {
+                    errorMessage.textContent = "";
+                }, 5000);
+            })
+            let messageTimer;
+            socket.on('game-message', (msg) => {
+                gameMessage.textContent = msg;
+                window.clearTimeout(messageTimer);
+                messageTimer = window.setTimeout(() => {
+                    gameMessage.textContent = "";
+                }, 5000);
+            })
+        </script>
+        
         <h1>Got Your Card</h1>
         <b id="name"></b>
         <!--Every submenu/screen is separated into divs for now
@@ -57,8 +90,20 @@
                 <label>
                     <input id="input-roomid"/>
                 </label>
-                <button id="submit-roomid-btn">Join</button>
+                <button>Join</button>
             </form>
+            <script>
+                var joinForm = document.getElementById('join-room-form');
+                var joinInput = document.getElementById('input-roomid');
+                //When the user submits text in the form, that message is
+                //emitted to the server
+                joinForm.addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    if (joinInput.value) {
+                        socket.emit('join-room', id, joinInput.value);
+                    }
+                });
+            </script>
         </div>
         <!--LOBBY-->
         <div id="lobby" style="display:none">
@@ -86,13 +131,27 @@
                 <br>
                 Your question: <b id="pending-question"></b>
                 <br>
-                <button id="submit-question-btn">Submit</button>
+                <button>Submit</button>
             </form>
             <br>
             <i>Other players are still writing questions...</i>
             <br>
             <br>
             <button onclick="endGame()">End Game</button>
+            <script>
+                var questionForm = document.getElementById('question-form');
+                var questionInput = document.getElementById('input-question');
+                //When the user submits text in the form, that message is
+                //emitted to the server
+                const pendingQuestion = document.getElementById('pending-question');
+                questionForm.addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    if (questionInput.value) {
+                        pendingQuestion.textContent = questionInput.value;
+                        socket.emit('submit-question', id, questionInput.value);
+                    }
+                });
+            </script>
         </div>
         <!--ANSWER MENU-->
         <div id="answer-menu" style="display:none;">
@@ -141,43 +200,7 @@
             <button onclick="startGame()">Play Again</button>
             <button onclick="leaveGame()">Leave</button>
         </div>
-        <!--This loads the clientside socket.io code-->
-        <script src="/socket.io/socket.io.js"></script>
         <script>
-            //TODO: Prevent idling so cloud server doesn't auto-disconnect
-            //Does that still need to be done?
-
-            //io() normally takes the URL to connect to as an argument. If none is
-            //provided, it defaults to the host that serves this page
-            var socket = io();
-            const id = getCookie('gycID');
-
-            var errorMessage = document.getElementById('error-message');
-            var gameMessage = document.getElementById('game-message');
-
-            var joinForm = document.getElementById('join-room-form');
-            var joinInput = document.getElementById('input-roomid');
-            //When the user submits text in the form, that message is
-            //emitted to the server
-            joinForm.addEventListener('submit', function(e) {
-                e.preventDefault();
-                if (joinInput.value) {
-                    socket.emit('join-room', id, joinInput.value);
-                }
-            });
-
-            var questionForm = document.getElementById('question-form');
-            var questionInput = document.getElementById('input-question');
-            //When the user submits text in the form, that message is
-            //emitted to the server
-            const pendingQuestion = document.getElementById('pending-question');
-            questionForm.addEventListener('submit', function(e) {
-                e.preventDefault();
-                if (questionInput.value) {
-                    pendingQuestion.textContent = questionInput.value;
-                    socket.emit('submit-question', id, questionInput.value);
-                }
-            });
             //When a message is received from the server, it gets
             //displayed in the webpage
             var playerList = document.getElementById('player-list');
@@ -227,22 +250,6 @@
             });
             socket.on('get-id', () => {
                 socket.emit('received-id', id);
-            })
-            let errorTimer;
-            socket.on('error', (msg) => {
-                errorMessage.textContent = msg;
-                window.clearTimeout(errorTimer);
-                errorTimer = window.setTimeout(() => {
-                    errorMessage.textContent = "";
-                }, 5000);
-            })
-            let messageTimer;
-            socket.on('game-message', (msg) => {
-                gameMessage.textContent = msg;
-                window.clearTimeout(messageTimer);
-                messageTimer = window.setTimeout(() => {
-                    gameMessage.textContent = "";
-                }, 5000);
             })
             //Game state
             var answers = {};
