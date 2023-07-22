@@ -144,7 +144,10 @@ function closeRoom(roomID){
     }
 }
 
-const phaseDuration = 60000;
+const phaseDuration = 180000;
+function getTimeLeft(timeout) {
+    return Math.ceil((phaseDuration - (process.uptime()*1000 - timeout._idleStart)));
+}
 //Phase controls
 function enterQuestionPhase(roomID){
     players = playersByRoom[roomID];
@@ -165,7 +168,7 @@ function enterQuestionPhase(roomID){
         enterAnswerPhase(roomID);
     }, phaseDuration);
 
-    io.to(roomID).emit('game-start');
+    io.to(roomID).emit('game-start', '', phaseDuration);
 }
 function enterAnswerPhase(roomID){
     players = playersByRoom[roomID];
@@ -218,7 +221,7 @@ function enterAnswerPhase(roomID){
         enterMatchPhase(roomID);
     }, phaseDuration);
 
-    io.to(roomID).emit('answer-phase', gameState.questions);
+    io.to(roomID).emit('answer-phase', gameState.questions, phaseDuration);
 }
 function enterMatchPhase(roomID){
     players = playersByRoom[roomID];
@@ -265,7 +268,7 @@ function enterMatchPhase(roomID){
         gameState.expectedMatchOrder[player].forEach(index => {
             names.push(nameByPlayer[players[index]]);
         })
-        socketByPlayer[player].emit('matching-phase', names, question, answers);
+        socketByPlayer[player].emit('matching-phase', names, question, answers, phaseDuration);
     })
 }
 function enterResultsPhase(roomID){ 
@@ -370,10 +373,10 @@ io.on('connection', (socket) => {
                 if(gameState.questions[id]){
                     question = gameState.questions[id];
                 }
-                socket.emit('game-start', question);
+                socket.emit('game-start', question, getTimeLeft(gameState.timer));
             }
             else if(state == 'ANSWERING'){
-                socket.emit('answer-phase', gameState.questions);
+                socket.emit('answer-phase', gameState.questions, getTimeLeft(gameState.timer));
             }
             else if(state == 'MATCHING'){
                 names = [];
@@ -393,7 +396,7 @@ io.on('connection', (socket) => {
                         }
                     }
                 })
-                socket.emit('matching-phase', names, question, answers);
+                socket.emit('matching-phase', names, question, answers, getTimeLeft(gameState.timer));
             }
             else if(state == 'RESULTS'){    
                 results = [];

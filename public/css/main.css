@@ -9,3 +9,27 @@ input {
     width: 6em;
     height: 2em;
 }
+
+:root{
+    --progress: 100;
+}
+
+.progress-container {
+    position: fixed;
+    width: 75%;
+    left: 12.5%;
+    top: 75%;
+    background-color: white;
+    --hue: calc(var(--progress) * 1.28);
+    border: 1rem solid hsl(var(--hue), 100%, 25%);
+    border-radius: 0 25px 25px 0;
+}
+  
+.progress-bar {
+    --width: calc(1% * var(--progress));
+    --hue: calc(var(--progress) * 1.28);
+    background-color: hsl(var(--hue), 100%, 50%);
+    width: var(--width);
+    height: 100px;
+    border-radius: 0 25px 25px 0;
+}

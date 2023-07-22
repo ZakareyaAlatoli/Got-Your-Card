@@ -14,6 +14,16 @@
             //io() normally takes the URL to connect to as an argument. If none is
             //provided, it defaults to the host that serves this page
             var socket = io();
+            function getCookie(name) {
+                var nameEQ = name + "=";
+                var ca = document.cookie.split(';');
+                for(var i=0;i < ca.length;i++) {
+                    var c = ca[i];
+                    while (c.charAt(0)==' ') c = c.substring(1,c.length);
+                    if (c.indexOf(nameEQ) == 0) return c.substring(nameEQ.length,c.length);
+                }
+                return null;
+            }
             const id = getCookie('gycID');
         </script>
         <!--TODO: Display these in a prettier way-->
@@ -39,6 +49,32 @@
                     gameMessage.textContent = "";
                 }, 5000);
             })
+        </script>
+        <div class="progress-container" id="timer" style="display: none;">
+            <div class="progress-bar">&nbsp</div>
+        </div>
+        <script>
+            maxTimerMS = 180000;
+            timerMS = maxTimerMS;
+            const rootStyle = document.querySelector(':root').style;
+            let loop;
+            function setProgressTime(t){
+                clearTimeout(loop);
+                timerMS = t;
+                loop = setInterval(() => {
+                    rootStyle.setProperty("--progress", timerMS/maxTimerMS * 100);
+                    timerMS -= 20;
+                    if(timerMS <= 0)
+                    clearInterval(loop);
+                }, 20);
+            }
+            const progressBar = document.getElementById('timer');
+            function showTimer(){
+                progressBar.style.display = "block";
+            }
+            function hideTimer(){
+                progressBar.style.display = "none";
+            }
         </script>
         
         <h1>Got Your Card</h1>
@@ -241,6 +277,7 @@
                 currentMenu.style.display = "none";
                 lobbyMenu.style.display = "block";
                 currentMenu = lobbyMenu;
+                hideTimer();
             })
             socket.on('left-room', () => {
                 navMenu.style.display = "block";
@@ -256,12 +293,16 @@
             var matches = [];
             var selectedAnswer;
 
-            socket.on('game-start', (question) => {
+            socket.on('game-start', (question, timeLeft) => {
                 currentMenu.style.display = "none";
                 questionMenu.style.display = "block";
+                currentMenu = questionMenu;
+                setProgressTime(timeLeft);
+                showTimer();
+
                 pendingQuestion.textContent = question;
                 
-                currentMenu = questionMenu;
+                
 
                 //Reset previous state if playing again
                 answers = {};
@@ -270,10 +311,13 @@
             })
             const questionList = document.getElementById('question-list');
             
-            socket.on('answer-phase', (questions) => {
+            socket.on('answer-phase', (questions, timeLeft) => {
                 currentMenu.style.display = "none";
                 answerMenu.style.display = "block";
                 currentMenu = answerMenu;
+                setProgressTime(timeLeft);
+                showTimer();
+
                 questionList.innerHTML = "";
                 //We iterate through these to make sure we don't
                 //display a player's own question
@@ -303,10 +347,12 @@
             const answerList = document.getElementById('answer-list');
             const nameList = document.getElementById('name-list');
             
-            socket.on('matching-phase', (names, question, answers) => {
+            socket.on('matching-phase', (names, question, answers, timeLeft) => {
                 currentMenu.style.display = "none";
                 matchMenu.style.display = "block";
                 currentMenu = matchMenu;
+                setProgressTime(timeLeft);
+                showTimer();
 
                 questionDisplay.textContent = question;
                 answerList.innerHTML = "";
@@ -397,6 +443,8 @@
                 currentMenu.style.display = "none";
                 resultsMenu.style.display = "block";
                 currentMenu = resultsMenu;
+                hideTimer();
+
                 scoreList.innerHTML = "";
                 allQuestionsList.innerHTML = "";
 
@@ -476,17 +524,6 @@
             function selectAnswer(answer){
                 answer.style.color = "green";
                 selectedAnswer = answer;
-            }
-            //Grepper ftw
-            function getCookie(name) {
-                var nameEQ = name + "=";
-                var ca = document.cookie.split(';');
-                for(var i=0;i < ca.length;i++) {
-                    var c = ca[i];
-                    while (c.charAt(0)==' ') c = c.substring(1,c.length);
-                    if (c.indexOf(nameEQ) == 0) return c.substring(nameEQ.length,c.length);
-                }
-                return null;
             }
         </script>
     </body>
