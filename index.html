@@ -13,16 +13,38 @@
         <!--Every submenu/screen is separated into divs for now
         TODO: Make them separate pages?-->
         <div id="main-menu">
-            <p>This is a game where the player who knows their opponents best wins. 
-                Enter your name below to get into a match.
+            <p>Ask your friends a question and answer your friends' questions 
+                back. Whoever knows their friends the best wins!
             </p>
-            <h3>Cookies must be enabled to play!</h3>
+            <div id="cookie-widget">
+                <h3>Cookies must be enabled to play!</h3>
+                <button onclick="enableNameEntry()">Accept</button>
+            </div>
             <form id="name-form" action="">
                 <label>
+                    Enter your username:
                     <input id="input-name"/>
                 </label>
-                <button id="submit-name-btn">Submit</button>
+                <fieldset id="name-form-submit" disabled>
+                    <button>Submit</button>
+                </fieldset>
             </form>
+            <script>
+                var nameForm = document.getElementById('name-form');
+                var nameInput = document.getElementById('input-name');
+                //When the user submits text in the form, that message is
+                //emitted to the server
+                nameForm.addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    if (nameInput.value) {
+                        socket.emit('enter-name', id, nameInput.value);
+                    }
+                });
+                function enableNameEntry(){
+                    document.getElementById('cookie-widget').remove();
+                    document.getElementById('name-form-submit').removeAttribute('disabled');
+                }
+            </script>
         </div>
         <!--CREATE/JOIN GAME MENU-->
         <div id="navigation-menu" style="display:none">
@@ -132,17 +154,6 @@
 
             var errorMessage = document.getElementById('error-message');
             var gameMessage = document.getElementById('game-message');
-
-            var nameForm = document.getElementById('name-form');
-            var nameInput = document.getElementById('input-name');
-            //When the user submits text in the form, that message is
-            //emitted to the server
-            nameForm.addEventListener('submit', function(e) {
-                e.preventDefault();
-                if (nameInput.value) {
-                    socket.emit('enter-name', id, nameInput.value);
-                }
-            });
 
             var joinForm = document.getElementById('join-room-form');
             var joinInput = document.getElementById('input-roomid');
