@@ -463,10 +463,7 @@ io.on('connection', (socket) => {
             return;
         }
         nameByPlayer[id] = nickname;
-        await redisClient.hSet(`names`, {
-            "id": id,
-            "name": nickname
-        });
+        await redisClient.set(`name:${id}`, nickname)
         socket.emit('name-set', nickname);
     });
     //Below are a list of callbacks for different events
