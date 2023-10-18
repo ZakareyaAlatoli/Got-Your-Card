@@ -12,10 +12,14 @@ const { Server } = require("socket.io");
 const io = new Server(server);
 //this is a middleware to read/write cookies so if players disconnect by accident they
 //don't lose all progress
-require("dotenv").config();
+
 const cookieParser = require('cookie-parser');
 //This should generate unique IDs for each user
 const {v4 : uuidv4 } = require('uuid');
+
+const redis = require("redis");
+
+require("dotenv").config();
 //Used to fetch the user ID so we don't have to rely on socket.id
 app.use(cookieParser());
 
@@ -30,6 +34,22 @@ app.get('/', (req, res) => {
     }
     res.sendFile(__dirname + '/index.html');
 });
+
+const redisClient = redis.createClient({
+    host: process.env.REDIS_HOST,
+    port: parseInt(process.env.REDIS_PORT)
+})
+
+redisClient.connect();
+
+redisClient.on("error", (err) => {
+    console.error(err);
+})
+
+redisClient.on("connect", (msg) => {
+    console.log("Connected to Redis");
+})
+
 
 //All of this information about connected players and rooms might
 //need to be stored in databases in production
@@ -437,12 +457,16 @@ io.on('connection', (socket) => {
     socket.on('heartbeat', (id) => {
         clearTimeout(timeouts[id]);
     })
-    socket.on('enter-name', (id,nickname) => {
+    socket.on('enter-name', async (id,nickname) => {
         if(roomByPlayer[id]){
             socket.emit('error', 'Cannot set name while in a room');
             return;
         }
         nameByPlayer[id] = nickname;
+        await redisClient.hSet(`names`, {
+            "id": id,
+            "name": nickname
+        });
         socket.emit('name-set', nickname);
     });
     //Below are a list of callbacks for different events
