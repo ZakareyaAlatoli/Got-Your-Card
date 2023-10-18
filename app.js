@@ -12,6 +12,7 @@ const { Server } = require("socket.io");
 const io = new Server(server);
 //this is a middleware to read/write cookies so if players disconnect by accident they
 //don't lose all progress
+require("dotenv").config();
 const cookieParser = require('cookie-parser');
 //This should generate unique IDs for each user
 const {v4 : uuidv4 } = require('uuid');
@@ -642,5 +643,5 @@ io.on('connection', (socket) => {
 const port = process.env.PORT || 3000;
 //this makes the server start listening for incoming requests
 server.listen(port, () => {
-  console.log(`Listening on port ${port}`);
+    console.log(`Listening on port ${port}`);
 });
